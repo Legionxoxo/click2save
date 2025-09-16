@@ -13,8 +13,7 @@
     "scripting"
   ],
   "optional_permissions": [
-    "webRequest",
-    "webRequestBlocking"
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -37,12 +36,7 @@
       "css": [
         "video-overlay.css"
       ],
-      "run_at": "document_idle",
-      "exclude_matches": [
-        "chrome://*/*",
-        "chrome-extension://*/*",
-        "moz-extension://*/*"
-      ]
+      "run_at": "document_idle"
     }
   ],
   "action": {

@@ -95,7 +95,9 @@ export const REQUEST_FILTERS = {
     twitch: ['twitch.tv', 'ttvnw.net'],
     dailymotion: ['dailymotion.com', 'dmcdn.net'],
     facebook: ['facebook.com', 'fbcdn.net'],
-    instagram: ['instagram.com', 'cdninstagram.com']
+    instagram: ['instagram.com', 'cdninstagram.com'],
+    twitter: ['x.com', 'twitter.com', 'video.twimg.com', 'pbs.twimg.com'],
+    tiktok: ['tiktok.com', 'tiktokcdn.com', 'muscdn.com']
   }
 };
 

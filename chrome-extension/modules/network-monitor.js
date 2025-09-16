@@ -48,8 +48,7 @@ export class NetworkMonitor extends EventEmitter {
   async checkPermissions() {
     try {
       const permissions = await chrome.permissions.getAll();
-      return permissions.permissions.includes('webRequest') &&
-             permissions.permissions.includes('webRequestBlocking');
+      return permissions.permissions.includes('webRequest');
     } catch (error) {
       Logger.error('Permission check failed:', error);
       return false;

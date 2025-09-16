@@ -365,12 +365,16 @@ let networkMonitor = null;
 
 async function initializeNetworkMonitor() {
   try {
+    console.log('🔍 Checking webRequest permissions...');
     const hasPermissions = await chrome.permissions.contains({
-      permissions: ['webRequest', 'webRequestBlocking']
+      permissions: ['webRequest']
     });
+
+    console.log('🔧 WebRequest permission status:', hasPermissions);
 
     if (hasPermissions) {
       try {
+        console.log('📡 Loading network monitor module...');
         const { networkMonitor: NetworkMonitorClass } = await import('./modules/network-monitor.js');
         networkMonitor = new NetworkMonitorClass();
         console.log('✅ Network monitor initialized');
@@ -687,6 +691,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse({ success: true });
           break;
 
+        case 'getM3U8Urls':
+          try {
+            const tab = await chrome.tabs.query({ active: true, currentWindow: true }).then(tabs => tabs[0]);
+            const tabId = tab?.id || sender?.tab?.id;
+
+            if (tabId) {
+              const m3u8Urls = await getM3U8UrlsForTab(tabId);
+              const allStreams = await getStreamDataForTab(tabId);
+
+              sendResponse({
+                success: true,
+                m3u8Urls,
+                allStreams,
+                tabId
+              });
+            } else {
+              sendResponse({
+                success: false,
+                error: 'Could not determine tab ID',
+                m3u8Urls: [],
+                allStreams: []
+              });
+            }
+          } catch (error) {
+            console.error('❌ Error getting M3U8 URLs:', error);
+            sendResponse({
+              success: false,
+              error: error.message,
+              m3u8Urls: [],
+              allStreams: []
+            });
+          }
+          break;
+
         case 'shareCookies':
           // Support both old platform-based and new domain-based calls
           const domain = request.domain || request.platform;
@@ -740,6 +778,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
+// Helper functions to get M3U8 and stream data
+async function getM3U8UrlsForTab(tabId) {
+  if (!networkMonitor) return [];
+
+  const streams = networkMonitor.activeStreams.get(tabId) || new Map();
+  const m3u8Urls = [];
+
+  for (const [requestId, streamData] of streams) {
+    if (streamData.format === 'HLS' && streamData.url.includes('.m3u8')) {
+      m3u8Urls.push({
+        url: streamData.url,
+        quality: streamData.quality,
+        timestamp: streamData.timestamp,
+        domain: streamData.domain
+      });
+    }
+  }
+
+  console.log(`🎯 Found ${m3u8Urls.length} M3U8 URLs for tab ${tabId}:`, m3u8Urls);
+  return m3u8Urls;
+}
+
+async function getStreamDataForTab(tabId) {
+  if (!networkMonitor) return [];
+
+  const streams = networkMonitor.activeStreams.get(tabId) || new Map();
+  const allStreams = [];
+
+  for (const [requestId, streamData] of streams) {
+    allStreams.push({
+      url: streamData.url,
+      format: streamData.format,
+      quality: streamData.quality,
+      timestamp: streamData.timestamp,
+      domain: streamData.domain,
+      type: streamData.type
+    });
+  }
+
+  return allStreams;
+}
+
 // Handle video download request - send to server for processing
 async function handleVideoDownload(request) {
   console.log('🎬 Download request for video:', request.videoId);
@@ -768,12 +848,14 @@ async function handleVideoDownload(request) {
         quality: video.quality,
         platform: video.platform || 'html5',
         duration: video.duration,
+        m3u8Urls: await getM3U8UrlsForTab(request.tabId),
         metadata: {
           width: video.width,
           height: video.height,
           category: video.category,
           thumbnail: video.thumbnail,
-          streamAnalysis: video.streamAnalysis
+          streamAnalysis: video.streamAnalysis,
+          detectedStreams: await getStreamDataForTab(request.tabId)
         }
       })
     });

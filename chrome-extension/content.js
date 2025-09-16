@@ -182,8 +182,37 @@ class VideoDetectionManager {
   }
 
   scanForVideos() {
-    const videoElements = document.querySelectorAll('video, iframe[src*="youtube"], iframe[src*="vimeo"], iframe[src*="dailymotion"]');
+    const videoElements = document.querySelectorAll(`
+      video,
+      iframe[src*="youtube"],
+      iframe[src*="vimeo"],
+      iframe[src*="dailymotion"],
+      iframe[src*="twitter.com"],
+      iframe[src*="x.com"],
+      [data-testid*="videoPlayer"],
+      [data-testid="videoComponent"],
+      [aria-label*="video" i],
+      [role="button"][aria-label*="play" i],
+      .video-player,
+      .tweet-video,
+      [class*="video" i][class*="player" i],
+      [data-video-url],
+      [data-poster],
+      video[poster]
+    `.replace(/\s+/g, ' ').trim());
     let newVideosFound = 0;
+
+    // Debug logging for X.com
+    if (window.location.hostname.includes('x.com') || window.location.hostname.includes('twitter.com')) {
+      console.log(`🔍 Scanning X.com - found ${videoElements.length} potential video elements:`,
+        Array.from(videoElements).map(el => ({
+          tag: el.tagName,
+          classes: el.className,
+          testId: el.getAttribute('data-testid'),
+          src: el.src || 'no-src'
+        }))
+      );
+    }
 
     videoElements.forEach((element, index) => {
       const videoId = this.generateVideoId(element, index);
@@ -227,7 +256,7 @@ class VideoDetectionManager {
     let metadata = {
       id: videoId,
       type: element.tagName.toLowerCase(),
-      src: element.src || element.getAttribute('data-src') || '',
+      src: this.extractVideoSrc(element),
       title: this.extractTitle(element),
       duration: element.duration || 0,
       currentTime: element.currentTime || 0,
@@ -249,6 +278,50 @@ class VideoDetectionManager {
     }
 
     return metadata;
+  }
+
+  extractVideoSrc(element) {
+    // Handle different ways videos are referenced on social media
+    const src = element.src ||
+                element.getAttribute('data-src') ||
+                element.getAttribute('data-video-url') ||
+                element.getAttribute('data-poster') ||
+                '';
+
+    // For Twitter/X video containers, look for nested video elements
+    if (!src && (element.classList.contains('video-player') || element.getAttribute('data-testid'))) {
+      const nestedVideo = element.querySelector('video');
+      if (nestedVideo) {
+        return nestedVideo.src || nestedVideo.getAttribute('data-src') || '';
+      }
+
+      // Look for background video URLs in style attributes
+      const style = element.getAttribute('style') || '';
+      const bgVideoMatch = style.match(/url\(['"]([^'"]*\.(?:mp4|webm|ogg))['"]\)/i);
+      if (bgVideoMatch) {
+        return bgVideoMatch[1];
+      }
+    }
+
+    // For iframe elements, return the iframe src
+    if (element.tagName === 'IFRAME') {
+      return element.src;
+    }
+
+    // Extract from data attributes commonly used by video players
+    const dataAttrs = [
+      'data-video', 'data-src', 'data-source', 'data-url',
+      'data-mp4', 'data-webm', 'data-stream', 'data-file'
+    ];
+
+    for (const attr of dataAttrs) {
+      const value = element.getAttribute(attr);
+      if (value && (value.includes('.mp4') || value.includes('.webm') || value.includes('blob:'))) {
+        return value;
+      }
+    }
+
+    return src;
   }
 
   extractTitle(element) {
@@ -392,8 +465,21 @@ class VideoDetectionManager {
   isValidVideo(metadata, category) {
     // Filter criteria for videos worth showing to user
     if (category === 'hidden') return false;
-    if (metadata.width < 100 || metadata.height < 100) return false;
-    if (metadata.duration > 0 && metadata.duration < 5) return false; // Very short videos
+
+    // More lenient size requirements for social media
+    const isOnSocialMedia = window.location.hostname.includes('x.com') ||
+                           window.location.hostname.includes('twitter.com') ||
+                           window.location.hostname.includes('instagram.com') ||
+                           window.location.hostname.includes('tiktok.com');
+
+    const minWidth = isOnSocialMedia ? 50 : 100;
+    const minHeight = isOnSocialMedia ? 50 : 100;
+
+    if (metadata.width < minWidth || metadata.height < minHeight) return false;
+    if (metadata.duration > 0 && metadata.duration < 3) return false; // Very short videos
+
+    // Accept videos without src if they have data attributes (social media)
+    if (!metadata.src && !isOnSocialMedia) return false;
 
     return true;
   }
@@ -664,7 +750,7 @@ async function loadStreamAnalysisModules() {
   try {
     // Check if user has granted optional permissions
     const hasPermissions = await chrome.permissions.contains({
-      permissions: ['webRequest', 'webRequestBlocking']
+      permissions: ['webRequest']
     });
 
     if (hasPermissions) {
@@ -744,6 +830,13 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
     try {
       console.log('📤 Sending video to server for processing:', videoData.title);
 
+      // Get M3U8 URLs from background script network monitoring
+      const m3u8Data = await chrome.runtime.sendMessage({
+        action: 'getM3U8Urls'
+      });
+
+      console.log('🎯 M3U8 detection results:', m3u8Data);
+
       // Use global config loaded by manifest
       const config = window.EXTENSION_CONFIG;
       if (!config) {
@@ -761,11 +854,14 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
           quality: videoData.quality,
           platform: videoData.platform || 'html5',
           duration: videoData.duration,
+          m3u8Urls: m3u8Data?.m3u8Urls || [],
+          detectedStreams: m3u8Data?.allStreams || [],
           metadata: {
             width: videoData.width,
             height: videoData.height,
             category: videoData.category,
-            thumbnail: videoData.thumbnail
+            thumbnail: videoData.thumbnail,
+            streamCount: m3u8Data?.m3u8Urls?.length || 0
           }
         })
       });

@@ -2,7 +2,7 @@ const logger = require('../configs/logger.config');
 
 const analyseLink = async (req, res, next) => {
   try {
-    const { videoUrl, title, quality, platform, duration, metadata } = req.body;
+    const { videoUrl, title, quality, platform, duration, metadata, m3u8Urls, detectedStreams } = req.body;
 
     // Validate required fields
     if (!videoUrl) {
@@ -17,7 +17,29 @@ const analyseLink = async (req, res, next) => {
       platform,
       duration,
       metadata,
+      m3u8Count: m3u8Urls?.length || 0,
+      streamCount: detectedStreams?.length || 0
     });
+
+    // Log M3U8 URLs for downloading
+    if (m3u8Urls && m3u8Urls.length > 0) {
+      console.log('🎯 M3U8 URLs detected for downloading:');
+      m3u8Urls.forEach((stream, index) => {
+        console.log(`  ${index + 1}. Quality: ${stream.quality || 'unknown'}`);
+        console.log(`     URL: ${stream.url}`);
+        console.log(`     Domain: ${stream.domain}`);
+        console.log('');
+      });
+    }
+
+    // Log all detected streams
+    if (detectedStreams && detectedStreams.length > 0) {
+      console.log('📊 All detected streams:');
+      detectedStreams.forEach((stream, index) => {
+        console.log(`  ${index + 1}. Format: ${stream.format}, Quality: ${stream.quality || 'unknown'}`);
+        console.log(`     URL: ${stream.url.substring(0, 100)}...`);
+      });
+    }
 
     // Generate a demo process ID
     const processId =
