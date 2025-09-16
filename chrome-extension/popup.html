@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 350px;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .header h1 {
+      margin: 0 0 4px 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1976d2;
+    }
+    
+    .header p {
+      margin: 0;
+      color: #666;
+      font-size: 12px;
+    }
+    
+    .status {
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    
+    .status.granted {
+      background: #e8f5e8;
+      color: #2e7d32;
+      border: 1px solid #c8e6c9;
+    }
+    
+    .status.not-granted {
+      background: #fff3e0;
+      color: #ef6c00;
+      border: 1px solid #ffcc02;
+    }
+    
+    .platforms {
+      margin-bottom: 16px;
+    }
+    
+    .platforms h3 {
+      margin: 0 0 8px 0;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    
+    .platform-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    
+    .platform-item:last-child {
+      border-bottom: none;
+    }
+    
+    .platform-item input[type="checkbox"] {
+      margin-right: 8px;
+    }
+    
+    .platform-item label {
+      flex: 1;
+      cursor: pointer;
+    }
+    
+    .platform-status {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 8px;
+    }
+    
+    .platform-status.active {
+      background: #e8f5e8;
+      color: #2e7d32;
+    }
+    
+    .platform-status.inactive {
+      background: #f5f5f5;
+      color: #666;
+    }
+    
+    .actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    
+    .btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    
+    .btn-primary {
+      background: #1976d2;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #1565c0;
+    }
+    
+    .btn-secondary {
+      background: #f5f5f5;
+      color: #666;
+      border: 1px solid #e0e0e0;
+    }
+    
+    .btn-secondary:hover {
+      background: #eeeeee;
+    }
+    
+    .btn-danger {
+      background: #d32f2f;
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background: #c62828;
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .info {
+      font-size: 12px;
+      color: #666;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e0e0e0;
+    }
+    
+    .info strong {
+      color: #333;
+    }
+    
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #666;
+    }
+    
+    .error {
+      background: #ffebee;
+      color: #c62828;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      border: 1px solid #ffcdd2;
+    }
+    
+    .consent-notice {
+      background: #e3f2fd;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      color: #1565c0;
+      border: 1px solid #bbdefb;
+    }
+    
+    .expires-info {
+      font-size: 11px;
+      color: #888;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🍪 Cookie Education Assistant</h1>
+    <p>Learn about cookies across websites</p>
+  </div>
+
+  <div id="loading" class="loading">
+    Loading...
+  </div>
+
+  <div id="error" class="error" style="display: none;"></div>
+
+  <div id="content" style="display: none;">
+    <div id="status" class="status">
+      <div id="status-text"></div>
+      <div id="expires-info" class="expires-info"></div>
+    </div>
+
+    <div class="consent-notice">
+      <strong>🔒 Your Privacy:</strong> Your browser cookies are only shared with your explicit consent for educational purposes and are automatically deleted after 24 hours. This helps you understand how cookies work across different websites.
+    </div>
+
+    <div class="platforms">
+      <h3>Current Website:</h3>
+      <div class="platform-item">
+        <div id="current-domain" style="font-weight: 500;">Detecting...</div>
+        <span id="domain-status" class="platform-status inactive">Ready to capture</span>
+      </div>
+    </div>
+
+    <div class="platforms">
+      <h3>Consent Options:</h3>
+      <div class="platform-item">
+        <input type="radio" id="all-domains" name="consent-scope" value="all" checked>
+        <label for="all-domains">All websites (recommended for learning)</label>
+      </div>
+      <div class="platform-item">
+        <input type="radio" id="current-domain" name="consent-scope" value="current">
+        <label for="current-domain">Current website only</label>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="grant-btn" class="btn btn-primary">Enable Cookie Learning</button>
+      <button id="revoke-btn" class="btn btn-danger" style="display: none;">Disable & Clear</button>
+    </div>
+
+    <div class="actions" id="manual-actions" style="display: none;">
+      <button id="capture-current" class="btn btn-secondary">Capture Current Site</button>
+      <button id="view-status" class="btn btn-secondary">View Cookie Status</button>
+    </div>
+
+    <div class="info">
+      <strong>How it works:</strong><br>
+      • Enable cookie learning to understand how websites track you<br>
+      • Cookies are safely captured and sent to your learning dashboard<br>
+      • All data auto-expires after 24 hours for privacy<br>
+      • You can revoke access anytime<br><br>
+      <strong>Educational Purpose:</strong> Learn about cookies, tracking, and web privacy across different websites.
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
