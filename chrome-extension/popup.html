@@ -189,6 +189,206 @@
       color: #888;
       margin-top: 4px;
     }
+
+    /* Video List Styles */
+    .video-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+
+    .video-item {
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .video-item:hover {
+      background-color: #f5f5f5;
+    }
+
+    .video-item:last-child {
+      border-bottom: none;
+    }
+
+    .video-item.selected {
+      background-color: #e3f2fd;
+      border-left: 3px solid #1976d2;
+    }
+
+    .video-thumbnail {
+      width: 40px;
+      height: 24px;
+      background: #f0f0f0;
+      border-radius: 2px;
+      margin-right: 8px;
+      object-fit: cover;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #666;
+    }
+
+    .video-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .video-title {
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.2;
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .video-details {
+      font-size: 10px;
+      color: #666;
+      display: flex;
+      gap: 8px;
+    }
+
+    .video-badge {
+      display: inline-block;
+      padding: 1px 4px;
+      border-radius: 2px;
+      font-size: 8px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .video-badge.main {
+      background: #4caf50;
+      color: white;
+    }
+
+    .video-badge.content {
+      background: #2196f3;
+      color: white;
+    }
+
+    .video-badge.secondary {
+      background: #ff9800;
+      color: white;
+    }
+
+    .video-badge.advertisement {
+      background: #f44336;
+      color: white;
+    }
+
+    .video-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .video-download-btn-small {
+      padding: 4px 8px;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .video-download-btn-small:hover {
+      background: #1565c0;
+    }
+
+    .video-count-badge {
+      background: #1976d2;
+      color: white;
+      border-radius: 10px;
+      padding: 2px 6px;
+      font-size: 10px;
+      margin-left: 8px;
+    }
+
+    /* Stream Analysis Indicators */
+    .stream-analysis-badge {
+      display: inline-block;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 600;
+      margin-left: 4px;
+    }
+
+    .stream-analysis-badge.downloadable {
+      background: #4caf50;
+      color: white;
+    }
+
+    .stream-analysis-badge.not-downloadable {
+      background: #f44336;
+      color: white;
+    }
+
+    .stream-analysis-badge.analyzing {
+      background: #ff9800;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+
+    .stream-analysis-badge.unknown {
+      background: #9e9e9e;
+      color: white;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+
+    .stream-info {
+      font-size: 9px;
+      color: #666;
+      margin-top: 2px;
+    }
+
+    .quality-indicator {
+      display: inline-block;
+      background: #2196f3;
+      color: white;
+      padding: 1px 3px;
+      border-radius: 2px;
+      font-size: 7px;
+      margin-right: 2px;
+    }
+
+    .stream-format {
+      color: #1976d2;
+      font-weight: 600;
+    }
+
+    .analysis-summary {
+      background: #f5f5f5;
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 11px;
+    }
+
+    .analysis-summary.has-downloadable {
+      background: #e8f5e8;
+      border-left: 3px solid #4caf50;
+    }
+
+    .analysis-summary.no-downloadable {
+      background: #ffebee;
+      border-left: 3px solid #f44336;
+    }
   </style>
 </head>
 <body>
@@ -243,13 +443,27 @@
       <button id="view-status" class="btn btn-secondary">View Cookie Status</button>
     </div>
 
+    <!-- Video Detection Section -->
+    <div id="video-section" style="display: none;">
+      <div class="platforms">
+        <h3>🎬 Detected Videos:</h3>
+        <div id="video-list" class="video-list">
+          <!-- Videos will be populated here -->
+        </div>
+        <div id="no-videos" style="display: none; text-align: center; padding: 20px; color: #666; font-size: 12px;">
+          No videos detected on this page.<br>
+          Try hovering over videos to see download options.
+        </div>
+      </div>
+    </div>
+
     <div class="info">
       <strong>How it works:</strong><br>
       • Enable cookie learning to understand how websites track you<br>
-      • Cookies are safely captured and sent to your learning dashboard<br>
-      • All data auto-expires after 24 hours for privacy<br>
-      • You can revoke access anytime<br><br>
-      <strong>Educational Purpose:</strong> Learn about cookies, tracking, and web privacy across different websites.
+      • Hover over any video to see download option<br>
+      • Cookies help bypass authentication for video downloads<br>
+      • All data auto-expires after 24 hours for privacy<br><br>
+      <strong>Video Downloads:</strong> Select any video on the page to download with proper authentication.
     </div>
   </div>
 

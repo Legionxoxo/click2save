@@ -7,7 +7,14 @@
     "cookies",
     "activeTab",
     "storage",
-    "tabs"
+    "tabs",
+    "contextMenus",
+    "notifications",
+    "scripting"
+  ],
+  "optional_permissions": [
+    "webRequest",
+    "webRequestBlocking"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -28,6 +35,23 @@
         "content.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "video-overlay.css"
+      ],
+      "run_at": "document_idle",
+      "exclude_matches": [
+        "chrome://*/*",
+        "chrome-extension://*/*",
+        "moz-extension://*/*"
+      ]
     }
   ],
   "action": {

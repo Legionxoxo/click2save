@@ -2,6 +2,7 @@ class PopupManager {
   constructor() {
     this.consentStatus = null;
     this.currentTab = null;
+    this.tabVideos = { detected: [], selected: null, count: 0 };
     this.init();
   }
 
@@ -9,7 +10,8 @@ class PopupManager {
     try {
       await Promise.all([
         this.loadConsentStatus(),
-        this.getCurrentTab()
+        this.getCurrentTab(),
+        this.loadTabVideos()
       ]);
       this.setupEventListeners();
       this.updateUI();
@@ -49,6 +51,24 @@ class PopupManager {
     });
   }
 
+  async loadTabVideos() {
+    if (!this.currentTab) return;
+
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        action: 'getTabVideos',
+        tabId: this.currentTab.id
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          this.tabVideos = response || { detected: [], selected: null, count: 0 };
+          resolve(response);
+        }
+      });
+    });
+  }
+
   setupEventListeners() {
     document.getElementById('grant-btn').addEventListener('click', () => {
       this.handleGrantConsent();
@@ -78,6 +98,7 @@ class PopupManager {
     this.updateCurrentDomainDisplay();
     this.updateConsentStatus();
     this.updateGrantButton();
+    this.updateVideoSection();
   }
 
   updateCurrentDomainDisplay() {
@@ -300,6 +321,334 @@ class PopupManager {
   async handleViewStatus() {
     // Open the web dashboard
     chrome.tabs.create({ url: 'http://localhost:3000' });
+  }
+
+  updateVideoSection() {
+    const videoSection = document.getElementById('video-section');
+    const videoList = document.getElementById('video-list');
+    const noVideosDiv = document.getElementById('no-videos');
+
+    if (this.tabVideos.count > 0) {
+      videoSection.style.display = 'block';
+      noVideosDiv.style.display = 'none';
+
+      // Add stream analysis summary
+      this.addAnalysisSummary(videoSection);
+
+      // Update section header with count
+      const header = videoSection.querySelector('h3');
+      header.innerHTML = `🎬 Detected Videos: <span class="video-count-badge">${this.tabVideos.count}</span>`;
+
+      // Clear existing video list
+      videoList.innerHTML = '';
+
+      // Filter and sort videos for display
+      const displayVideos = this.tabVideos.detected
+        .filter(video => video.category !== 'hidden' && video.category !== 'thumbnail')
+        .sort((a, b) => {
+          // Sort by downloadability first, then category priority
+          const aDownloadable = a.streamAnalysis?.downloadable ? 0 : 1;
+          const bDownloadable = b.streamAnalysis?.downloadable ? 0 : 1;
+
+          if (aDownloadable !== bDownloadable) return aDownloadable - bDownloadable;
+
+          // Sort by category priority
+          const categoryPriority = {
+            'main': 0,
+            'content': 1,
+            'secondary': 2,
+            'advertisement': 3
+          };
+
+          const aPriority = categoryPriority[a.category] ?? 4;
+          const bPriority = categoryPriority[b.category] ?? 4;
+
+          if (aPriority !== bPriority) return aPriority - bPriority;
+
+          // Secondary sort by dimensions (larger first)
+          return (b.width * b.height) - (a.width * a.height);
+        })
+        .slice(0, 5); // Show max 5 videos to avoid crowding
+
+      // Create video items
+      displayVideos.forEach(video => {
+        const videoItem = this.createVideoItem(video);
+        videoList.appendChild(videoItem);
+      });
+
+      if (displayVideos.length === 0) {
+        noVideosDiv.style.display = 'block';
+        noVideosDiv.innerHTML = 'Videos detected but filtered out.<br>Try hovering over videos on the page.';
+      }
+    } else {
+      videoSection.style.display = 'block';
+      noVideosDiv.style.display = 'block';
+    }
+  }
+
+  addAnalysisSummary(videoSection) {
+    // Remove existing summary
+    const existingSummary = videoSection.querySelector('.analysis-summary');
+    if (existingSummary) {
+      existingSummary.remove();
+    }
+
+    // Add new summary if we have analysis data
+    if (this.tabVideos.streamAnalysis && this.tabVideos.streamAnalysis.hasAnalysis) {
+      const summary = document.createElement('div');
+      const analysis = this.tabVideos.streamAnalysis;
+
+      summary.className = `analysis-summary ${analysis.downloadable > 0 ? 'has-downloadable' : 'no-downloadable'}`;
+
+      let summaryText = `📊 Analysis: ${analysis.totalAnalyzed} videos analyzed`;
+      if (analysis.downloadable > 0) {
+        summaryText += `, ${analysis.downloadable} downloadable`;
+      } else {
+        summaryText += `, none downloadable`;
+      }
+
+      summary.innerHTML = summaryText;
+
+      // Insert before the video list
+      const platforms = videoSection.querySelector('.platforms');
+      platforms.insertBefore(summary, platforms.firstChild);
+    }
+  }
+
+  createVideoItem(video) {
+    const item = document.createElement('div');
+    item.className = 'video-item';
+    if (this.tabVideos.selected && this.tabVideos.selected.id === video.id) {
+      item.classList.add('selected');
+    }
+
+    // Create thumbnail
+    const thumbnail = document.createElement('div');
+    thumbnail.className = 'video-thumbnail';
+    if (video.thumbnail) {
+      const img = document.createElement('img');
+      img.src = video.thumbnail;
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.style.borderRadius = '2px';
+      thumbnail.appendChild(img);
+    } else {
+      thumbnail.textContent = '🎬';
+    }
+
+    // Create video info
+    const info = document.createElement('div');
+    info.className = 'video-info';
+
+    const title = document.createElement('div');
+    title.className = 'video-title';
+    title.textContent = video.title || 'Untitled Video';
+    title.title = video.title; // Full title on hover
+
+    const details = document.createElement('div');
+    details.className = 'video-details';
+
+    // Add category badge
+    const categoryBadge = document.createElement('span');
+    categoryBadge.className = `video-badge ${video.category}`;
+    categoryBadge.textContent = video.category;
+
+    // Add quality and duration info
+    const specs = document.createElement('span');
+    specs.textContent = `${video.quality || 'Unknown'}`;
+    if (video.duration && video.duration > 0) {
+      specs.textContent += ` • ${this.formatDuration(video.duration)}`;
+    }
+    specs.textContent += ` • ${video.width}x${video.height}`;
+
+    // Add stream analysis badge
+    const analysisBadge = this.createAnalysisBadge(video);
+
+    details.appendChild(categoryBadge);
+    details.appendChild(analysisBadge);
+    details.appendChild(specs);
+
+    // Add stream info if available
+    if (video.streamAnalysis) {
+      const streamInfo = this.createStreamInfo(video.streamAnalysis);
+      details.appendChild(streamInfo);
+    }
+
+    info.appendChild(title);
+    info.appendChild(details);
+
+    // Create actions
+    const actions = document.createElement('div');
+    actions.className = 'video-actions';
+
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'video-download-btn-small';
+    downloadBtn.textContent = '📥';
+    downloadBtn.title = 'Download this video';
+    downloadBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.handleVideoDownload(video);
+    });
+
+    actions.appendChild(downloadBtn);
+
+    // Assemble item
+    item.appendChild(thumbnail);
+    item.appendChild(info);
+    item.appendChild(actions);
+
+    // Add click handler for item selection
+    item.addEventListener('click', () => {
+      this.selectVideoInList(video);
+    });
+
+    return item;
+  }
+
+  formatDuration(seconds) {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+  }
+
+  selectVideoInList(video) {
+    // Update UI to show selection
+    document.querySelectorAll('.video-item').forEach(item => {
+      item.classList.remove('selected');
+    });
+
+    event.currentTarget.classList.add('selected');
+
+    // Store selection locally
+    this.tabVideos.selected = video;
+
+    console.log('📋 Video selected from popup:', video.title);
+  }
+
+  async handleVideoDownload(video) {
+    if (!this.consentStatus.granted) {
+      this.showError('Please enable cookie learning first to download videos');
+      return;
+    }
+
+    console.log('🎬 Initiating download for:', video.title);
+
+    try {
+      // Show loading state
+      const downloadBtns = document.querySelectorAll('.video-download-btn-small');
+      downloadBtns.forEach(btn => {
+        btn.textContent = '⏳';
+        btn.disabled = true;
+      });
+
+      const response = await chrome.runtime.sendMessage({
+        action: 'downloadVideo',
+        videoId: video.id,
+        video: video
+      });
+
+      if (response.success) {
+        this.showSuccess(`Download started for: ${video.title}`);
+      } else {
+        this.showError(response.message || 'Download failed');
+      }
+    } catch (error) {
+      this.showError('Failed to start download: ' + error.message);
+    } finally {
+      // Reset button states
+      setTimeout(() => {
+        const downloadBtns = document.querySelectorAll('.video-download-btn-small');
+        downloadBtns.forEach(btn => {
+          btn.textContent = '📥';
+          btn.disabled = false;
+        });
+      }, 2000);
+    }
+  }
+
+  createAnalysisBadge(video) {
+    const badge = document.createElement('span');
+    badge.className = 'stream-analysis-badge';
+
+    if (!video.streamAnalysis) {
+      badge.className += ' unknown';
+      badge.textContent = '?';
+      badge.title = 'Stream analysis not available';
+    } else if (video.streamAnalysis.status === 'analyzing') {
+      badge.className += ' analyzing';
+      badge.textContent = '⏳';
+      badge.title = 'Analyzing stream...';
+    } else if (video.streamAnalysis.downloadable) {
+      badge.className += ' downloadable';
+      badge.textContent = '✓';
+      badge.title = `Downloadable (${video.streamAnalysis.confidence || 'unknown'} confidence)`;
+    } else {
+      badge.className += ' not-downloadable';
+      badge.textContent = '✗';
+      badge.title = 'Not downloadable';
+    }
+
+    return badge;
+  }
+
+  createStreamInfo(analysis) {
+    const streamInfo = document.createElement('div');
+    streamInfo.className = 'stream-info';
+
+    const infoParts = [];
+
+    // Format information
+    if (analysis.format) {
+      infoParts.push(`<span class="stream-format">${analysis.format}</span>`);
+    }
+
+    // Quality options
+    if (analysis.qualityOptions && analysis.qualityOptions.length > 0) {
+      const qualities = analysis.qualityOptions
+        .map(q => q.quality)
+        .filter(Boolean)
+        .slice(0, 3); // Show max 3 qualities
+
+      qualities.forEach(quality => {
+        infoParts.push(`<span class="quality-indicator">${quality}</span>`);
+      });
+
+      if (analysis.qualityOptions.length > 3) {
+        infoParts.push(`+${analysis.qualityOptions.length - 3} more`);
+      }
+    }
+
+    // Stream count
+    if (analysis.streams && analysis.streams.length > 0) {
+      infoParts.push(`${analysis.streams.length} stream${analysis.streams.length > 1 ? 's' : ''}`);
+    }
+
+    streamInfo.innerHTML = infoParts.join(' • ');
+    return streamInfo;
+  }
+
+  showSuccess(message) {
+    // Create a temporary success notification
+    const successDiv = document.createElement('div');
+    successDiv.style.cssText = `
+      background: #4caf50;
+      color: white;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      position: relative;
+    `;
+    successDiv.textContent = message;
+
+    const content = document.getElementById('content');
+    content.insertBefore(successDiv, content.firstChild);
+
+    // Remove after 3 seconds
+    setTimeout(() => successDiv.remove(), 3000);
   }
 
   showLoading(message = 'Loading...') {
