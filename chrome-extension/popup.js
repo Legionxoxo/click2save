@@ -22,18 +22,14 @@ class PopupManager {
   }
 
   async loadConsentStatus() {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'getConsentStatus' }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else if (response.error) {
-          reject(new Error(response.error));
-        } else {
-          this.consentStatus = response;
-          resolve(response);
-        }
-      });
-    });
+    // For video downloader, consent is always active
+    this.consentStatus = {
+      granted: true,
+      domains: ['*'],
+      expiresAt: null,
+      sessionId: 'video-downloader'
+    };
+    return this.consentStatus;
   }
 
   async getCurrentTab() {
@@ -70,34 +66,17 @@ class PopupManager {
   }
 
   setupEventListeners() {
-    document.getElementById('grant-btn').addEventListener('click', () => {
-      this.handleGrantConsent();
+    document.getElementById('refresh-videos').addEventListener('click', () => {
+      this.handleRefreshVideos();
     });
 
-    document.getElementById('revoke-btn').addEventListener('click', () => {
-      this.handleRevokeConsent();
-    });
-
-    document.getElementById('capture-current').addEventListener('click', () => {
-      this.handleCaptureCurrentSite();
-    });
-
-    document.getElementById('view-status').addEventListener('click', () => {
-      this.handleViewStatus();
-    });
-
-    // Handle consent scope changes
-    document.querySelectorAll('input[name="consent-scope"]').forEach(radio => {
-      radio.addEventListener('change', () => {
-        this.updateGrantButton();
-      });
+    document.getElementById('open-server').addEventListener('click', () => {
+      this.handleOpenServer();
     });
   }
 
   updateUI() {
     this.updateCurrentDomainDisplay();
-    this.updateConsentStatus();
-    this.updateGrantButton();
     this.updateVideoSection();
   }
 
@@ -110,24 +89,16 @@ class PopupManager {
         const url = new URL(this.currentTab.url);
         const domain = url.hostname;
         currentDomainDiv.textContent = `📍 ${domain}`;
-
-        if (this.consentStatus && this.consentStatus.granted) {
-          const hasAccess = this.consentStatus.domains.includes('*') ||
-                           this.consentStatus.domains.includes(domain);
-          domainStatus.textContent = hasAccess ? 'Active' : 'Not consented';
-          domainStatus.className = `platform-status ${hasAccess ? 'active' : 'inactive'}`;
-        } else {
-          domainStatus.textContent = 'Ready to capture';
-          domainStatus.className = 'platform-status inactive';
-        }
+        domainStatus.textContent = 'Video detection active';
+        domainStatus.className = 'platform-status active';
       } catch (error) {
         currentDomainDiv.textContent = '❌ Invalid URL';
-        domainStatus.textContent = 'Cannot capture';
+        domainStatus.textContent = 'Cannot detect videos';
         domainStatus.className = 'platform-status inactive';
       }
     } else {
       currentDomainDiv.textContent = '❌ No active tab';
-      domainStatus.textContent = 'Cannot capture';
+      domainStatus.textContent = 'Cannot detect videos';
       domainStatus.className = 'platform-status inactive';
     }
   }
@@ -318,12 +289,28 @@ class PopupManager {
     }
   }
 
-  async handleViewStatus() {
-    // Use the same config format as content script
-    const config = {
-      API_SERVER_URL: 'http://localhost:3000'
-    };
-    chrome.tabs.create({ url: config.API_SERVER_URL });
+  async handleRefreshVideos() {
+    console.log('🔄 Refreshing video detection...');
+    try {
+      // Reload the tab videos
+      await this.loadTabVideos();
+      this.updateVideoSection();
+
+      // Send message to content script to rescan
+      chrome.tabs.sendMessage(this.currentTab.id, { action: 'rescanVideos' }, () => {
+        if (chrome.runtime.lastError) {
+          console.log('Content script not ready for rescan message');
+        }
+      });
+
+      this.showSuccess('Video detection refreshed');
+    } catch (error) {
+      this.showError('Failed to refresh: ' + error.message);
+    }
+  }
+
+  async handleOpenServer() {
+    chrome.tabs.create({ url: 'http://localhost:3000' });
   }
 
   updateVideoSection() {

@@ -2,12 +2,12 @@
 // SHARED UTILITY FUNCTIONS
 // =============================================================================
 
-import { STREAM_FORMATS, QUALITY_PATTERNS, DEBUG } from './constants.js';
+const { STREAM_FORMATS, QUALITY_PATTERNS, DEBUG } = require('./constants.js');
 
 /**
  * Logging utilities with debug control
  */
-export const Logger = {
+const Logger = {
   log: (message, ...args) => {
     if (DEBUG.ENABLED) {
       console.log(`[VideoDownloader] ${message}`, ...args);
@@ -46,7 +46,7 @@ export const Logger = {
 /**
  * URL utilities for video stream analysis
  */
-export const URLUtils = {
+const URLUtils = {
   /**
    * Check if URL is a video stream
    */
@@ -143,7 +143,7 @@ export const URLUtils = {
 /**
  * Stream analysis utilities
  */
-export const StreamUtils = {
+const StreamUtils = {
   /**
    * Parse M3U8 playlist content
    */
@@ -267,7 +267,7 @@ export const StreamUtils = {
 /**
  * Performance timing utilities
  */
-export const Performance = {
+const Performance = {
   timers: new Map(),
 
   start: (label) => {
@@ -290,7 +290,7 @@ export const Performance = {
 /**
  * Event emitter for module communication
  */
-export class EventEmitter {
+class EventEmitter {
   constructor() {
     this.events = new Map();
   }
@@ -328,7 +328,7 @@ export class EventEmitter {
 /**
  * Async utilities
  */
-export const AsyncUtils = {
+const AsyncUtils = {
   /**
    * Sleep for specified milliseconds
    */
@@ -364,7 +364,7 @@ export const AsyncUtils = {
 /**
  * DOM utilities
  */
-export const DOMUtils = {
+const DOMUtils = {
   /**
    * Check if element is visible
    */
@@ -404,8 +404,8 @@ export const DOMUtils = {
   }
 };
 
-// Export all utilities as default
-export default {
+// Export all utilities
+module.exports = {
   Logger,
   URLUtils,
   StreamUtils,

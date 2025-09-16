@@ -393,8 +393,8 @@
 </head>
 <body>
   <div class="header">
-    <h1>🍪 Cookie Education Assistant</h1>
-    <p>Learn about cookies across websites</p>
+    <h1>🎬 Video Downloader Assistant</h1>
+    <p>Detect and download videos from any website</p>
   </div>
 
   <div id="loading" class="loading">
@@ -405,42 +405,21 @@
 
   <div id="content" style="display: none;">
     <div id="status" class="status">
-      <div id="status-text"></div>
-      <div id="expires-info" class="expires-info"></div>
-    </div>
-
-    <div class="consent-notice">
-      <strong>🔒 Your Privacy:</strong> Your browser cookies are only shared with your explicit consent for educational purposes and are automatically deleted after 24 hours. This helps you understand how cookies work across different websites.
+      <div id="status-text">🎬 Video detection active</div>
+      <div id="expires-info" class="expires-info">Hover over videos to see download options</div>
     </div>
 
     <div class="platforms">
       <h3>Current Website:</h3>
       <div class="platform-item">
         <div id="current-domain" style="font-weight: 500;">Detecting...</div>
-        <span id="domain-status" class="platform-status inactive">Ready to capture</span>
-      </div>
-    </div>
-
-    <div class="platforms">
-      <h3>Consent Options:</h3>
-      <div class="platform-item">
-        <input type="radio" id="all-domains" name="consent-scope" value="all" checked>
-        <label for="all-domains">All websites (recommended for learning)</label>
-      </div>
-      <div class="platform-item">
-        <input type="radio" id="current-domain" name="consent-scope" value="current">
-        <label for="current-domain">Current website only</label>
+        <span id="domain-status" class="platform-status active">Scanning</span>
       </div>
     </div>
 
     <div class="actions">
-      <button id="grant-btn" class="btn btn-primary">Enable Cookie Learning</button>
-      <button id="revoke-btn" class="btn btn-danger" style="display: none;">Disable & Clear</button>
-    </div>
-
-    <div class="actions" id="manual-actions" style="display: none;">
-      <button id="capture-current" class="btn btn-secondary">Capture Current Site</button>
-      <button id="view-status" class="btn btn-secondary">View Cookie Status</button>
+      <button id="refresh-videos" class="btn btn-primary">🔄 Refresh Video Detection</button>
+      <button id="open-server" class="btn btn-secondary">🌐 Open Server</button>
     </div>
 
     <!-- Video Detection Section -->
@@ -459,11 +438,11 @@
 
     <div class="info">
       <strong>How it works:</strong><br>
-      • Enable cookie learning to understand how websites track you<br>
-      • Hover over any video to see download option<br>
-      • Cookies help bypass authentication for video downloads<br>
-      • All data auto-expires after 24 hours for privacy<br><br>
-      <strong>Video Downloads:</strong> Select any video on the page to download with proper authentication.
+      • Extension automatically detects videos on any webpage<br>
+      • Hover over videos to see download overlay appear<br>
+      • Click download to get video with authentication cookies<br>
+      • Supports M3U8, MP4, WebM and other video formats<br><br>
+      <strong>Tip:</strong> If you don't see overlays, try refreshing the page or clicking "Refresh Video Detection" above.
     </div>
   </div>
 

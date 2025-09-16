@@ -6,7 +6,6 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const processRoute = require('./routes/process.route');
 const errorMiddleware = require('./middlewares/error.middleware');
-const storeCookies = require('./routes/cookies.routes');
 
 const app = express();
 
@@ -46,8 +45,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-//cookie routes
-app.use('/api/extension', storeCookies);
 // Video processing endpoints
 app.use('/api/video', processRoute);
 

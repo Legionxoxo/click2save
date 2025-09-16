@@ -1,147 +1,8 @@
-// Content script for Cookie Education Assistant
-// This script runs on web pages to facilitate communication between the web app and extension
+// Content script for Video Downloader Assistant
+// This script runs on web pages to detect videos and provide download functionality
 
-console.log('🔗 Cookie Education Assistant content script loaded');
+console.log('🎬 Video Downloader Assistant content script loaded');
 console.log('🌐 Current URL:', window.location.href);
-console.log('🏷️ Extension ID:', chrome.runtime.id);
-
-// Listen for messages from the web application
-window.addEventListener('message', async (event) => {
-  // Only accept messages from our domain
-  if (event.origin !== 'http://localhost:3000') {
-    return;
-  }
-
-  if (event.data.type === 'COOKIE_EDUCATION_EXTENSION_CHECK' && event.data.source === 'webapp') {
-    console.log('📨 Received extension check request from web app');
-    console.log('📋 Event data:', event.data);
-
-    try {
-      // Get consent status from background script
-      console.log('🔄 Sending message to background script...');
-      
-      // Check if runtime is available
-      if (!chrome.runtime || !chrome.runtime.sendMessage) {
-        throw new Error('Chrome runtime not available');
-      }
-      
-      // Wrap in try-catch to handle extension context issues
-      let response;
-      try {
-        response = await chrome.runtime.sendMessage({ action: 'getConsentStatus' });
-        console.log('📬 Response from background script:', response);
-      } catch (runtimeError) {
-        if (runtimeError.message.includes('Extension context invalidated') || 
-            runtimeError.message.includes('message port closed')) {
-          console.log('🔄 Extension context invalidated, responding with fallback');
-          // Send fallback response indicating extension needs to be reloaded
-          window.postMessage({
-            type: 'COOKIE_EDUCATION_EXTENSION_RESPONSE',
-            available: false,
-            reason: 'context_invalidated',
-            message: 'Extension needs to be reloaded'
-          }, '*');
-          return;
-        }
-        throw runtimeError;
-      }
-      
-      if (response && response.granted && response.sessionId) {
-        // Extension is available and has active consent
-        window.postMessage({
-          type: 'COOKIE_EDUCATION_EXTENSION_RESPONSE',
-          available: true,
-          sessionId: response.sessionId,
-          domains: response.domains,
-          expiresAt: response.expiresAt
-        }, '*');
-
-        console.log('✅ Responded to web app - extension available with session:', response.sessionId);
-      } else {
-        // Extension available but no consent
-        window.postMessage({
-          type: 'COOKIE_EDUCATION_EXTENSION_RESPONSE',
-          available: false,
-          reason: response ? 'no_consent' : 'communication_error'
-        }, '*');
-
-        console.log('❌ Responded to web app - extension not available (no consent)');
-      }
-    } catch (error) {
-      console.error('❌ Error communicating with background script:', error);
-      window.postMessage({
-        type: 'COOKIE_EDUCATION_EXTENSION_RESPONSE',
-        available: false,
-        reason: 'error',
-        error: error.message
-      }, '*');
-    }
-  }
-
-  // Handle requests to capture cookies from current domain
-  if (event.data.type === 'COOKIE_EDUCATION_CAPTURE_REQUEST' && event.data.source === 'webapp') {
-    console.log('📨 Received cookie capture request from web app');
-
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'captureCurrentTab' });
-
-      window.postMessage({
-        type: 'COOKIE_EDUCATION_CAPTURE_RESPONSE',
-        success: response.success || false,
-        domain: window.location.hostname,
-        url: window.location.href,
-        timestamp: new Date().toISOString()
-      }, '*');
-
-      console.log('✅ Cookie capture completed for domain:', window.location.hostname);
-    } catch (error) {
-      console.error('❌ Error capturing cookies:', error);
-      window.postMessage({
-        type: 'COOKIE_EDUCATION_CAPTURE_RESPONSE',
-        success: false,
-        error: error.message,
-        domain: window.location.hostname
-      }, '*');
-    }
-  }
-
-  // Handle consent granting requests
-  if (event.data.type === 'COOKIE_EDUCATION_GRANT_CONSENT' && event.data.source === 'webapp') {
-    console.log('📨 Received consent grant request from web app');
-
-    try {
-      const domains = event.data.domains || ['*'];
-      const response = await chrome.runtime.sendMessage({
-        action: 'grantConsent',
-        domains: domains
-      });
-
-      window.postMessage({
-        type: 'COOKIE_EDUCATION_CONSENT_RESPONSE',
-        success: response.success || false,
-        domains: domains,
-        timestamp: new Date().toISOString()
-      }, '*');
-
-      console.log('✅ Consent granted for domains:', domains);
-    } catch (error) {
-      console.error('❌ Error granting consent:', error);
-      window.postMessage({
-        type: 'COOKIE_EDUCATION_CONSENT_RESPONSE',
-        success: false,
-        error: error.message
-      }, '*');
-    }
-  }
-});
-
-// Inject a marker element to help web app detect extension presence
-const marker = document.createElement('div');
-marker.id = 'cookie-education-extension-available';
-marker.style.display = 'none';
-document.documentElement.appendChild(marker);
-
-console.log('🎯 Extension marker injected and message listener active');
 
 // =============================================================================
 // VIDEO DETECTION AND SELECTION SYSTEM
@@ -162,7 +23,9 @@ class VideoDetectionManager {
 
     // Wait for DOM to be ready
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => this.startDetection());
+      document.addEventListener('DOMContentLoaded', () =>
+        this.startDetection()
+      );
     } else {
       this.startDetection();
     }
@@ -182,7 +45,10 @@ class VideoDetectionManager {
   }
 
   scanForVideos() {
-    const videoElements = document.querySelectorAll(`
+    console.log('🔍 Scanning for videos on:', window.location.href);
+
+    const videoElements = document.querySelectorAll(
+      `
       video,
       iframe[src*="youtube"],
       iframe[src*="vimeo"],
@@ -199,17 +65,26 @@ class VideoDetectionManager {
       [data-video-url],
       [data-poster],
       video[poster]
-    `.replace(/\s+/g, ' ').trim());
+    `
+        .replace(/\s+/g, ' ')
+        .trim()
+    );
+
+    console.log(`🎯 Found ${videoElements.length} potential video elements`);
     let newVideosFound = 0;
 
     // Debug logging for X.com
-    if (window.location.hostname.includes('x.com') || window.location.hostname.includes('twitter.com')) {
-      console.log(`🔍 Scanning X.com - found ${videoElements.length} potential video elements:`,
+    if (
+      window.location.hostname.includes('x.com') ||
+      window.location.hostname.includes('twitter.com')
+    ) {
+      console.log(
+        `🔍 Scanning X.com - found ${videoElements.length} potential video elements:`,
         Array.from(videoElements).map(el => ({
           tag: el.tagName,
           classes: el.className,
           testId: el.getAttribute('data-testid'),
-          src: el.src || 'no-src'
+          src: el.src || 'no-src',
         }))
       );
     }
@@ -227,7 +102,7 @@ class VideoDetectionManager {
             ...videoData,
             category,
             element,
-            detected: new Date().toISOString()
+            detected: new Date().toISOString(),
           });
 
           this.createVideoOverlay(element, videoId, videoData);
@@ -237,7 +112,9 @@ class VideoDetectionManager {
     });
 
     if (newVideosFound > 0) {
-      console.log(`🎯 Found ${newVideosFound} new videos (${this.detectedVideos.size} total)`);
+      console.log(
+        `🎯 Found ${newVideosFound} new videos (${this.detectedVideos.size} total)`
+      );
       this.notifyBackgroundScript();
     }
   }
@@ -246,7 +123,9 @@ class VideoDetectionManager {
     // Create unique ID based on element attributes and position
     const src = element.src || element.getAttribute('data-src') || '';
     const rect = element.getBoundingClientRect();
-    return `video_${btoa(src + rect.width + rect.height + index).replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}`;
+    return `video_${btoa(src + rect.width + rect.height + index)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .substring(0, 12)}`;
   }
 
   extractVideoMetadata(element, videoId) {
@@ -266,10 +145,12 @@ class VideoDetectionManager {
       hasControls: element.controls || false,
       isAutoplay: element.autoplay || false,
       isMuted: element.muted || false,
-      isVisible: computedStyle.display !== 'none' && computedStyle.visibility !== 'hidden',
+      isVisible:
+        computedStyle.display !== 'none' &&
+        computedStyle.visibility !== 'hidden',
       zIndex: parseInt(computedStyle.zIndex) || 0,
       quality: this.estimateQuality(rect.width, rect.height),
-      thumbnail: this.extractThumbnail(element)
+      thumbnail: this.extractThumbnail(element),
     };
 
     // Handle iframe videos
@@ -282,14 +163,19 @@ class VideoDetectionManager {
 
   extractVideoSrc(element) {
     // Handle different ways videos are referenced on social media
-    const src = element.src ||
-                element.getAttribute('data-src') ||
-                element.getAttribute('data-video-url') ||
-                element.getAttribute('data-poster') ||
-                '';
+    const src =
+      element.src ||
+      element.getAttribute('data-src') ||
+      element.getAttribute('data-video-url') ||
+      element.getAttribute('data-poster') ||
+      '';
 
     // For Twitter/X video containers, look for nested video elements
-    if (!src && (element.classList.contains('video-player') || element.getAttribute('data-testid'))) {
+    if (
+      !src &&
+      (element.classList.contains('video-player') ||
+        element.getAttribute('data-testid'))
+    ) {
       const nestedVideo = element.querySelector('video');
       if (nestedVideo) {
         return nestedVideo.src || nestedVideo.getAttribute('data-src') || '';
@@ -297,7 +183,9 @@ class VideoDetectionManager {
 
       // Look for background video URLs in style attributes
       const style = element.getAttribute('style') || '';
-      const bgVideoMatch = style.match(/url\(['"]([^'"]*\.(?:mp4|webm|ogg))['"]\)/i);
+      const bgVideoMatch = style.match(
+        /url\(['"]([^'"]*\.(?:mp4|webm|ogg))['"]\)/i
+      );
       if (bgVideoMatch) {
         return bgVideoMatch[1];
       }
@@ -310,13 +198,24 @@ class VideoDetectionManager {
 
     // Extract from data attributes commonly used by video players
     const dataAttrs = [
-      'data-video', 'data-src', 'data-source', 'data-url',
-      'data-mp4', 'data-webm', 'data-stream', 'data-file'
+      'data-video',
+      'data-src',
+      'data-source',
+      'data-url',
+      'data-mp4',
+      'data-webm',
+      'data-stream',
+      'data-file',
     ];
 
     for (const attr of dataAttrs) {
       const value = element.getAttribute(attr);
-      if (value && (value.includes('.mp4') || value.includes('.webm') || value.includes('blob:'))) {
+      if (
+        value &&
+        (value.includes('.mp4') ||
+          value.includes('.webm') ||
+          value.includes('blob:'))
+      ) {
         return value;
       }
     }
@@ -331,8 +230,10 @@ class VideoDetectionManager {
       element.getAttribute('aria-label'),
       element.getAttribute('data-title'),
       element.closest('[data-title]')?.getAttribute('data-title'),
-      element.closest('article, .video-item, .video-card')?.querySelector('h1, h2, h3, .title')?.textContent,
-      document.title
+      element
+        .closest('article, .video-item, .video-card')
+        ?.querySelector('h1, h2, h3, .title')?.textContent,
+      document.title,
     ];
 
     for (const title of titleSources) {
@@ -382,15 +283,18 @@ class VideoDetectionManager {
     // Ad indicators
     const isSmallVideo = rect.width < 300 || rect.height < 150;
     const hasAdKeywords = this.hasAdKeywords(element);
-    const isAutoplayWithoutControls = metadata.isAutoplay && !metadata.hasControls;
+    const isAutoplayWithoutControls =
+      metadata.isAutoplay && !metadata.hasControls;
 
     // Background/decoration indicators
     const isBackground = rect.width < 100 || rect.height < 100;
-    const isHidden = !metadata.isVisible || rect.width === 0 || rect.height === 0;
+    const isHidden =
+      !metadata.isVisible || rect.width === 0 || rect.height === 0;
 
     // Categorization logic
     if (isHidden || isBackground) return 'hidden';
-    if (hasAdKeywords || (isAutoplayWithoutControls && isSmallVideo)) return 'advertisement';
+    if (hasAdKeywords || (isAutoplayWithoutControls && isSmallVideo))
+      return 'advertisement';
     if (isSmallVideo && !hasControls) return 'thumbnail';
     if (isCurrentlyPlaying && isLargeVideo && hasControls) return 'main';
     if (isCenterOfViewport && isLargeVideo) return 'main';
@@ -405,14 +309,23 @@ class VideoDetectionManager {
     const videoCenterX = rect.left + rect.width / 2;
     const videoCenterY = rect.top + rect.height / 2;
 
-    return videoCenterX > viewportWidth * 0.2 && videoCenterX < viewportWidth * 0.8 &&
-           videoCenterY > viewportHeight * 0.1 && videoCenterY < viewportHeight * 0.9;
+    return (
+      videoCenterX > viewportWidth * 0.2 &&
+      videoCenterX < viewportWidth * 0.8 &&
+      videoCenterY > viewportHeight * 0.1 &&
+      videoCenterY < viewportHeight * 0.9
+    );
   }
 
   hasAdKeywords(element) {
     const adKeywords = ['ad', 'advertisement', 'sponsored', 'promo', 'banner'];
-    const textContent = (element.className + ' ' + element.id + ' ' +
-                        (element.parentElement?.className || '')).toLowerCase();
+    const textContent = (
+      element.className +
+      ' ' +
+      element.id +
+      ' ' +
+      (element.parentElement?.className || '')
+    ).toLowerCase();
 
     return adKeywords.some(keyword => textContent.includes(keyword));
   }
@@ -457,8 +370,12 @@ class VideoDetectionManager {
 
   extractYouTubeTitle(iframe) {
     // Try to find title in nearby elements
-    const container = iframe.closest('.video-container, .video-wrapper, article');
-    const titleElement = container?.querySelector('h1, h2, h3, .title, [data-title]');
+    const container = iframe.closest(
+      '.video-container, .video-wrapper, article'
+    );
+    const titleElement = container?.querySelector(
+      'h1, h2, h3, .title, [data-title]'
+    );
     return titleElement?.textContent?.trim();
   }
 
@@ -467,10 +384,11 @@ class VideoDetectionManager {
     if (category === 'hidden') return false;
 
     // More lenient size requirements for social media
-    const isOnSocialMedia = window.location.hostname.includes('x.com') ||
-                           window.location.hostname.includes('twitter.com') ||
-                           window.location.hostname.includes('instagram.com') ||
-                           window.location.hostname.includes('tiktok.com');
+    const isOnSocialMedia =
+      window.location.hostname.includes('x.com') ||
+      window.location.hostname.includes('twitter.com') ||
+      window.location.hostname.includes('instagram.com') ||
+      window.location.hostname.includes('tiktok.com');
 
     const minWidth = isOnSocialMedia ? 50 : 100;
     const minHeight = isOnSocialMedia ? 50 : 100;
@@ -540,7 +458,7 @@ class VideoDetectionManager {
     });
 
     // Handle download button click
-    downloadBtn.addEventListener('click', (e) => {
+    downloadBtn.addEventListener('click', e => {
       e.stopPropagation();
       this.selectVideo(videoId);
     });
@@ -603,7 +521,7 @@ class VideoDetectionManager {
     }
   }
 
-  selectVideo(videoId) {
+  async selectVideo(videoId) {
     const videoData = this.detectedVideos.get(videoId);
     if (!videoData) return;
 
@@ -616,13 +534,185 @@ class VideoDetectionManager {
     // Add visual selection indicator
     this.addSelectionIndicator(videoData.element);
 
-    // Notify background script about selection
-    this.notifyVideoSelection(videoData);
+    // Show consent dialog and process video
+    await this.showConsentAndProcessVideo(videoData);
+  }
+
+  async showConsentAndProcessVideo(videoData) {
+    return new Promise(resolve => {
+      // Create consent dialog
+      const dialog = document.createElement('div');
+      dialog.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10002;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      `;
+
+      const dialogContent = document.createElement('div');
+      dialogContent.style.cssText = `
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 400px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      `;
+
+      dialogContent.innerHTML = `
+        <div style="display: flex; align-items: center; margin-bottom: 16px;">
+          <div style="font-size: 24px; margin-right: 12px;">🎬</div>
+          <h3 style="margin: 0; color: #333;">Download Video</h3>
+        </div>
+        <p style="color: #666; margin: 16px 0; line-height: 1.5;">
+          To download "<strong>${videoData.title}</strong>", we need your permission to access cookies from this website.
+          Cookies may be required for authentication to download the video.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+          <button id="cancel-btn" style="
+            padding: 10px 20px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #666;
+          ">Cancel</button>
+          <button id="consent-btn" style="
+            padding: 10px 20px;
+            border: none;
+            background: #1976d2;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+          ">Allow & Download</button>
+        </div>
+      `;
+
+      dialog.appendChild(dialogContent);
+      document.body.appendChild(dialog);
+
+      // Handle button clicks
+      dialogContent
+        .querySelector('#cancel-btn')
+        .addEventListener('click', () => {
+          document.body.removeChild(dialog);
+          resolve(false);
+        });
+
+      dialogContent
+        .querySelector('#consent-btn')
+        .addEventListener('click', async () => {
+          document.body.removeChild(dialog);
+
+          // Show processing indicator
+          this.showProcessingIndicator();
+
+          // Get cookies and process video
+          try {
+            await this.processVideoWithCookies(videoData);
+            resolve(true);
+          } catch (error) {
+            console.error('❌ Error processing video:', error);
+            this.showNotification(
+              'Error',
+              'Failed to process video for download'
+            );
+            resolve(false);
+          }
+        });
+    });
+  }
+
+  showProcessingIndicator() {
+    const indicator = document.createElement('div');
+    indicator.id = 'video-processing-indicator';
+    indicator.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #2196f3;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 10001;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    `;
+
+    indicator.innerHTML = `
+      <div style="
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top: 2px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      "></div>
+      <span>Processing video...</span>
+      <style>
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      </style>
+    `;
+
+    document.body.appendChild(indicator);
+  }
+
+  async processVideoWithCookies(videoData) {
+    try {
+      // Get cookies for current domain
+      const domain = window.location.hostname;
+      const cookies = await this.getCookiesForDomain(domain);
+
+      console.log(`🍪 Retrieved ${cookies.length} cookies for ${domain}`);
+
+      // Send video data with cookies to server
+      await this.sendVideoToServerWithCookies(videoData, cookies);
+    } catch (error) {
+      console.error('❌ Error in processVideoWithCookies:', error);
+      throw error;
+    } finally {
+      // Remove processing indicator
+      const indicator = document.getElementById('video-processing-indicator');
+      if (indicator) {
+        indicator.remove();
+      }
+    }
+  }
+
+  async getCookiesForDomain(domain) {
+    try {
+      console.log('📨 Requesting cookies for domain:', domain);
+      const response = await chrome.runtime.sendMessage({
+        action: 'getCookiesForDomain',
+        domain: domain,
+      });
+      console.log('📬 Cookie response received:', response);
+      return response.cookies || [];
+    } catch (error) {
+      console.error('❌ Error getting cookies:', error);
+      return [];
+    }
   }
 
   addSelectionIndicator(element) {
     // Remove previous indicators
-    document.querySelectorAll('.video-selected-indicator').forEach(el => el.remove());
+    document
+      .querySelectorAll('.video-selected-indicator')
+      .forEach(el => el.remove());
 
     // Add selection border
     const indicator = document.createElement('div');
@@ -662,8 +752,8 @@ class VideoDetectionManager {
           platform: videoData.platform,
           thumbnail: videoData.thumbnail,
           width: videoData.width,
-          height: videoData.height
-        }
+          height: videoData.height,
+        },
       });
 
       console.log('📤 Video selection sent to background:', response);
@@ -674,41 +764,49 @@ class VideoDetectionManager {
 
   async notifyBackgroundScript() {
     try {
-      const videosArray = Array.from(this.detectedVideos.values()).map(video => ({
-        id: video.id,
-        title: video.title,
-        category: video.category,
-        quality: video.quality,
-        duration: video.duration,
-        width: video.width,
-        height: video.height,
-        isPlaying: video.isPlaying,
-        platform: video.platform || 'html5'
-      }));
+      const videosArray = Array.from(this.detectedVideos.values()).map(
+        video => ({
+          id: video.id,
+          title: video.title,
+          category: video.category,
+          quality: video.quality,
+          duration: video.duration,
+          width: video.width,
+          height: video.height,
+          isPlaying: video.isPlaying,
+          platform: video.platform || 'html5',
+        })
+      );
 
       await chrome.runtime.sendMessage({
         action: 'videosDetected',
         videos: videosArray,
         count: videosArray.length,
-        url: window.location.href
+        url: window.location.href,
       });
     } catch (error) {
-      console.error('❌ Failed to notify background about detected videos:', error);
+      console.error(
+        '❌ Failed to notify background about detected videos:',
+        error
+      );
     }
   }
 
   setupMutationObserver() {
     if (this.observerInitialized) return;
 
-    const observer = new MutationObserver((mutations) => {
+    const observer = new MutationObserver(mutations => {
       let shouldRescan = false;
 
-      mutations.forEach((mutation) => {
+      mutations.forEach(mutation => {
         // Check for added video elements
-        mutation.addedNodes.forEach((node) => {
+        mutation.addedNodes.forEach(node => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.tagName === 'VIDEO' || node.tagName === 'IFRAME' ||
-                node.querySelector && node.querySelector('video, iframe')) {
+            if (
+              node.tagName === 'VIDEO' ||
+              node.tagName === 'IFRAME' ||
+              (node.querySelector && node.querySelector('video, iframe'))
+            ) {
               shouldRescan = true;
             }
           }
@@ -722,7 +820,7 @@ class VideoDetectionManager {
 
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
     });
 
     this.observerInitialized = true;
@@ -738,101 +836,37 @@ class VideoDetectionManager {
   }
 }
 
-// Initialize video detection manager
+// Initialize video detection manager with debugging
+console.log('🚀 Initializing video detection system...');
 const videoManager = new VideoDetectionManager();
+console.log('✅ Video manager created:', videoManager);
 
 // =============================================================================
 // STREAM ANALYSIS INTEGRATION
 // =============================================================================
 
-// Dynamically load stream analysis modules if features are enabled
-async function loadStreamAnalysisModules() {
-  try {
-    // Check if user has granted optional permissions
-    const hasPermissions = await chrome.permissions.contains({
-      permissions: ['webRequest']
-    });
+// Stream analysis is handled by the background script's network monitor
+// Content script focuses on video detection and user interaction
+console.log('ℹ️ Stream analysis handled by background network monitor');
 
-    if (hasPermissions) {
-      try {
-        // Dynamically import modules to avoid loading if not needed
-        const { streamAnalyzer } = await import('./modules/stream-analyzer.js');
-
-        // Initialize stream analyzer
-        window.streamAnalyzer = streamAnalyzer;
-
-        // Connect stream analyzer to video selection
-        videoManager.onVideoSelected = async (videoData) => {
-          console.log('🔬 Starting stream analysis for:', videoData.title);
-
-          try {
-            const analysis = await streamAnalyzer.analyzeVideo(videoData);
-
-            // Enhance video data with analysis
-            videoData.streamAnalysis = analysis;
-
-            // Notify background script
-            await chrome.runtime.sendMessage({
-              action: 'streamAnalyzed',
-              videoId: videoData.id,
-              analysis: analysis
-            });
-
-            console.log('✅ Stream analysis complete:', {
-              downloadable: analysis.downloadable,
-              format: analysis.format,
-              qualityOptions: analysis.qualityOptions?.length || 0
-            });
-
-          } catch (error) {
-            console.error('❌ Stream analysis failed:', error);
-          }
-        };
-
-        console.log('✅ Stream analysis modules loaded');
-      } catch (moduleError) {
-        console.log('ℹ️ Stream analyzer module not available:', moduleError.message);
-      }
-    } else {
-      console.log('ℹ️ Stream analysis requires additional permissions');
-    }
-  } catch (error) {
-    console.error('❌ Failed to load stream analysis modules:', error);
-  }
-}
-
-// Enhanced video selection with stream analysis
+// Enhanced video detection manager
 class EnhancedVideoDetectionManager extends VideoDetectionManager {
   constructor() {
     super();
-    this.onVideoSelected = null;
   }
 
-  async selectVideo(videoId) {
-    // Call parent method
-    super.selectVideo(videoId);
+  // Uses the parent class selectVideo method which handles consent and processing
 
-    // Send video to server for processing
-    const videoData = this.detectedVideos.get(videoId);
-    if (videoData) {
-      await this.sendVideoToServer(videoData);
-    }
-
-    // Trigger stream analysis if callback is set
-    if (this.onVideoSelected) {
-      if (videoData) {
-        await this.onVideoSelected(videoData);
-      }
-    }
-  }
-
-  async sendVideoToServer(videoData) {
+  async sendVideoToServerWithCookies(videoData, cookies) {
     try {
-      console.log('📤 Sending video to server for processing:', videoData.title);
+      console.log(
+        '📤 Sending video to server for processing:',
+        videoData.title
+      );
 
       // Get M3U8 URLs from background script network monitoring
       const m3u8Data = await chrome.runtime.sendMessage({
-        action: 'getM3U8Urls'
+        action: 'getM3U8Urls',
       });
 
       console.log('🎯 M3U8 detection results:', m3u8Data);
@@ -843,28 +877,81 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         throw new Error('Extension configuration not loaded');
       }
 
-      const response = await fetch(`${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          videoUrl: videoData.src,
-          title: videoData.title,
-          quality: videoData.quality,
-          platform: videoData.platform || 'html5',
-          duration: videoData.duration,
-          m3u8Urls: m3u8Data?.m3u8Urls || [],
-          detectedStreams: m3u8Data?.allStreams || [],
-          metadata: {
-            width: videoData.width,
-            height: videoData.height,
-            category: videoData.category,
-            thumbnail: videoData.thumbnail,
-            streamCount: m3u8Data?.m3u8Urls?.length || 0
-          }
-        })
+      // Get the best stream URL from network monitoring
+      const bestStreamResponse = await chrome.runtime.sendMessage({
+        action: 'getBestStreamUrl'
       });
+
+      // Prioritize network-captured stream URLs over video element src
+      let primaryVideoUrl = videoData.src; // fallback
+
+      console.log('🔍 Video URL Selection Process:');
+      console.log('  📁 Video element src:', videoData.src);
+      console.log('  🌐 Network streams available:', {
+        bestStream: bestStreamResponse.success ? bestStreamResponse.streamUrl : 'none',
+        m3u8Count: m3u8Data?.m3u8Urls?.length || 0,
+        allStreamCount: m3u8Data?.allStreams?.length || 0
+      });
+
+      if (bestStreamResponse.success && bestStreamResponse.streamUrl) {
+        primaryVideoUrl = bestStreamResponse.streamUrl;
+        console.log('🎯 SELECTED: Network-captured stream URL');
+        console.log('   📺 Full URL:', primaryVideoUrl);
+      } else if (m3u8Data?.m3u8Urls && m3u8Data.m3u8Urls.length > 0) {
+        // Use first M3U8 URL if available
+        primaryVideoUrl = m3u8Data.m3u8Urls[0].url;
+        console.log('🎯 SELECTED: M3U8 URL');
+        console.log('   📺 Full URL:', primaryVideoUrl);
+      } else if (m3u8Data?.allStreams && m3u8Data.allStreams.length > 0) {
+        // Use first detected stream
+        primaryVideoUrl = m3u8Data.allStreams[0].url;
+        console.log('🎯 SELECTED: Detected stream');
+        console.log('   📺 Full URL:', primaryVideoUrl);
+      } else {
+        console.log('⚠️ FALLBACK: Using video element src');
+        console.log('   📺 Full URL:', primaryVideoUrl);
+      }
+
+      const payload = {
+        videoUrl: primaryVideoUrl,
+        title: videoData.title,
+        quality: videoData.quality,
+        platform: videoData.platform || 'html5',
+        duration: videoData.duration,
+        m3u8Urls: m3u8Data?.m3u8Urls || [],
+        detectedStreams: m3u8Data?.allStreams || [],
+        cookies: cookies,
+        sessionId: `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+        metadata: {
+          width: videoData.width,
+          height: videoData.height,
+          category: videoData.category,
+          thumbnail: videoData.thumbnail,
+          streamCount: m3u8Data?.m3u8Urls?.length || 0,
+          domain: window.location.hostname,
+        },
+      };
+
+      console.log('📤 Sending payload to server:', {
+        endpoint: `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
+        primaryVideoUrl: primaryVideoUrl,
+        title: videoData.title,
+        cookieCount: cookies.length,
+        m3u8Count: payload.m3u8Urls.length,
+        streamCount: payload.detectedStreams.length,
+        fullPayload: payload
+      });
+
+      const response = await fetch(
+        `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       if (response.ok) {
         const result = await response.json();
@@ -884,14 +971,18 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
           videoId: videoData.id,
           processId: result.processId,
           downloadUrl: result.downloadUrl,
-          title: videoData.title
+          title: videoData.title,
         });
       } else {
         throw new Error(`Server responded with status: ${response.status}`);
       }
     } catch (error) {
       console.error('❌ Failed to send video to server:', error);
-      this.showNotification('Processing failed', `Failed to process "${videoData.title}"`);
+      this.showNotification(
+        'Processing failed',
+        `Failed to process "${videoData.title}"`
+      );
+      throw error;
     }
   }
 
@@ -968,7 +1059,9 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
     document.body.appendChild(notification);
 
     // Add download button functionality
-    const downloadBtn = notification.querySelector(`#download-btn-${processId}`);
+    const downloadBtn = notification.querySelector(
+      `#download-btn-${processId}`
+    );
     downloadBtn.addEventListener('click', () => {
       console.log('🎬 Starting demo download:', downloadUrl);
 
@@ -1023,8 +1116,8 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
           thumbnail: videoData.thumbnail,
           width: videoData.width,
           height: videoData.height,
-          streamAnalysis: videoData.streamAnalysis || null
-        }
+          streamAnalysis: videoData.streamAnalysis || null,
+        },
       };
 
       const response = await chrome.runtime.sendMessage(message);
@@ -1043,9 +1136,5 @@ enhancedVideoManager.detectedVideos = videoManager.detectedVideos;
 enhancedVideoManager.overlays = videoManager.overlays;
 enhancedVideoManager.selectedVideo = videoManager.selectedVideo;
 
-// Initialize stream analysis modules
-loadStreamAnalysisModules();
-
 // Expose enhanced manager to global scope
 window.videoManager = enhancedVideoManager;
-window.streamAnalyzer = null; // Will be set by loadStreamAnalysisModules

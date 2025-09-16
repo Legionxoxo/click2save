@@ -3,7 +3,7 @@
 // =============================================================================
 
 // Server configuration
-export const SERVER_CONFIG = {
+const SERVER_CONFIG = {
   // Main API server for video processing
   API_SERVER_URL: 'http://localhost:3000',
 
@@ -21,7 +21,7 @@ export const SERVER_CONFIG = {
 };
 
 // Feature flags for modular functionality
-export const FEATURES = {
+const FEATURES = {
   VIDEO_SELECTION: true,        // Core video selection (always enabled)
   STREAM_ANALYSIS: true,        // Analyze video streams for downloadability
   NETWORK_MONITORING: true,     // Monitor network requests for video URLs
@@ -31,14 +31,14 @@ export const FEATURES = {
 };
 
 // Module configuration
-export const MODULES = {
+const MODULES = {
   NETWORK_MONITORING: true,
   BACKGROUND_ANALYSIS: true,
   REAL_TIME_PROGRESS: false
 };
 
 // Video stream format detection
-export const STREAM_FORMATS = {
+const STREAM_FORMATS = {
   HLS: {
     extensions: ['.m3u8'],
     mimeTypes: ['application/vnd.apple.mpegurl', 'application/x-mpegURL'],
@@ -62,7 +62,7 @@ export const STREAM_FORMATS = {
 };
 
 // Quality detection patterns
-export const QUALITY_PATTERNS = {
+const QUALITY_PATTERNS = {
   '4K': ['2160p', '4k', '3840x2160', '4096x2160'],
   '1440p': ['1440p', '2k', '2560x1440'],
   '1080p': ['1080p', 'fhd', '1920x1080'],
@@ -74,7 +74,7 @@ export const QUALITY_PATTERNS = {
 };
 
 // Network request filtering
-export const REQUEST_FILTERS = {
+const REQUEST_FILTERS = {
   VIDEO_URLS: [
     '*://*/*.m3u8*',
     '*://*/*.mpd*',
@@ -102,7 +102,7 @@ export const REQUEST_FILTERS = {
 };
 
 // Stream analysis configuration
-export const ANALYSIS_CONFIG = {
+const ANALYSIS_CONFIG = {
   MAX_SEGMENTS_TO_ANALYZE: 10,
   REQUEST_TIMEOUT: 5000,
   RETRY_ATTEMPTS: 3,
@@ -111,7 +111,7 @@ export const ANALYSIS_CONFIG = {
 };
 
 // Event types for module communication
-export const EVENTS = {
+const EVENTS = {
   VIDEO_DETECTED: 'video:detected',
   VIDEO_SELECTED: 'video:selected',
   STREAM_FOUND: 'stream:found',
@@ -123,7 +123,7 @@ export const EVENTS = {
 };
 
 // Error types
-export const ERROR_TYPES = {
+const ERROR_TYPES = {
   NETWORK_ERROR: 'NETWORK_ERROR',
   ANALYSIS_ERROR: 'ANALYSIS_ERROR',
   PERMISSION_ERROR: 'PERMISSION_ERROR',
@@ -132,7 +132,7 @@ export const ERROR_TYPES = {
 };
 
 // Download status types
-export const DOWNLOAD_STATUS = {
+const DOWNLOAD_STATUS = {
   PENDING: 'pending',
   ANALYZING: 'analyzing',
   READY: 'ready',
@@ -144,7 +144,7 @@ export const DOWNLOAD_STATUS = {
 };
 
 // UI Constants
-export const UI_CONSTANTS = {
+const UI_CONSTANTS = {
   OVERLAY_Z_INDEX: 2147483647,
   NOTIFICATION_DURATION: 3000,
   PROGRESS_UPDATE_INTERVAL: 1000,
@@ -153,7 +153,7 @@ export const UI_CONSTANTS = {
 };
 
 // Debug configuration
-export const DEBUG = {
+const DEBUG = {
   ENABLED: true,
   LOG_NETWORK_REQUESTS: false,
   LOG_STREAM_ANALYSIS: true,
@@ -161,8 +161,8 @@ export const DEBUG = {
   PERFORMANCE_TIMING: false
 };
 
-// Export default configuration object
-export default {
+// Export all constants
+module.exports = {
   SERVER_CONFIG,
   FEATURES,
   MODULES,

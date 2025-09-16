@@ -2,7 +2,7 @@ const logger = require('../configs/logger.config');
 
 const analyseLink = async (req, res, next) => {
   try {
-    const { videoUrl, title, quality, platform, duration, metadata, m3u8Urls, detectedStreams } = req.body;
+    const { videoUrl, title, quality, platform, duration, metadata, m3u8Urls, detectedStreams, cookies, sessionId } = req.body;
 
     // Validate required fields
     if (!videoUrl) {
@@ -18,8 +18,20 @@ const analyseLink = async (req, res, next) => {
       duration,
       metadata,
       m3u8Count: m3u8Urls?.length || 0,
-      streamCount: detectedStreams?.length || 0
+      streamCount: detectedStreams?.length || 0,
+      cookieCount: cookies?.length || 0,
+      hasSessionId: !!sessionId
     });
+
+    // Log cookie information if provided
+    if (cookies && cookies.length > 0) {
+      logger.info('Cookies received for video processing', {
+        domain: cookies[0]?.domain || 'unknown',
+        cookieCount: cookies.length,
+        sessionId: sessionId
+      });
+      console.log('🍪 Cookies received for video download authentication');
+    }
 
     // Log M3U8 URLs for downloading
     if (m3u8Urls && m3u8Urls.length > 0) {

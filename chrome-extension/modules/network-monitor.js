@@ -2,14 +2,14 @@
 // NETWORK MONITOR MODULE
 // =============================================================================
 
-import { FEATURES, REQUEST_FILTERS, EVENTS, ANALYSIS_CONFIG } from '../shared/constants.js';
-import { Logger, URLUtils, EventEmitter, Performance } from '../shared/utils.js';
+const { FEATURES, REQUEST_FILTERS, EVENTS, ANALYSIS_CONFIG } = require('../shared/constants.js');
+const { Logger, URLUtils, EventEmitter, Performance } = require('../shared/utils.js');
 
 /**
  * NetworkMonitor class handles interception and analysis of network requests
  * to identify video streams and manifest files automatically
  */
-export class NetworkMonitor extends EventEmitter {
+class NetworkMonitor extends EventEmitter {
   constructor() {
     super();
 
@@ -383,8 +383,5 @@ export class NetworkMonitor extends EventEmitter {
   }
 }
 
-// Create singleton instance
-export const networkMonitor = new NetworkMonitor();
-
-// Export class for testing
-export default NetworkMonitor;
+// Export the class
+module.exports = { NetworkMonitor };
