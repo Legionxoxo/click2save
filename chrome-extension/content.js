@@ -668,41 +668,45 @@ async function loadStreamAnalysisModules() {
     });
 
     if (hasPermissions) {
-      // Dynamically import modules to avoid loading if not needed
-      const { streamAnalyzer } = await import('./modules/stream-analyzer.js');
+      try {
+        // Dynamically import modules to avoid loading if not needed
+        const { streamAnalyzer } = await import('./modules/stream-analyzer.js');
 
-      // Initialize stream analyzer
-      window.streamAnalyzer = streamAnalyzer;
+        // Initialize stream analyzer
+        window.streamAnalyzer = streamAnalyzer;
 
-      // Connect stream analyzer to video selection
-      videoManager.onVideoSelected = async (videoData) => {
-        console.log('🔬 Starting stream analysis for:', videoData.title);
+        // Connect stream analyzer to video selection
+        videoManager.onVideoSelected = async (videoData) => {
+          console.log('🔬 Starting stream analysis for:', videoData.title);
 
-        try {
-          const analysis = await streamAnalyzer.analyzeVideo(videoData);
+          try {
+            const analysis = await streamAnalyzer.analyzeVideo(videoData);
 
-          // Enhance video data with analysis
-          videoData.streamAnalysis = analysis;
+            // Enhance video data with analysis
+            videoData.streamAnalysis = analysis;
 
-          // Notify background script
-          await chrome.runtime.sendMessage({
-            action: 'streamAnalyzed',
-            videoId: videoData.id,
-            analysis: analysis
-          });
+            // Notify background script
+            await chrome.runtime.sendMessage({
+              action: 'streamAnalyzed',
+              videoId: videoData.id,
+              analysis: analysis
+            });
 
-          console.log('✅ Stream analysis complete:', {
-            downloadable: analysis.downloadable,
-            format: analysis.format,
-            qualityOptions: analysis.qualityOptions?.length || 0
-          });
+            console.log('✅ Stream analysis complete:', {
+              downloadable: analysis.downloadable,
+              format: analysis.format,
+              qualityOptions: analysis.qualityOptions?.length || 0
+            });
 
-        } catch (error) {
-          console.error('❌ Stream analysis failed:', error);
-        }
-      };
+          } catch (error) {
+            console.error('❌ Stream analysis failed:', error);
+          }
+        };
 
-      console.log('✅ Stream analysis modules loaded');
+        console.log('✅ Stream analysis modules loaded');
+      } catch (moduleError) {
+        console.log('ℹ️ Stream analyzer module not available:', moduleError.message);
+      }
     } else {
       console.log('ℹ️ Stream analysis requires additional permissions');
     }
@@ -722,13 +726,189 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
     // Call parent method
     super.selectVideo(videoId);
 
+    // Send video to server for processing
+    const videoData = this.detectedVideos.get(videoId);
+    if (videoData) {
+      await this.sendVideoToServer(videoData);
+    }
+
     // Trigger stream analysis if callback is set
     if (this.onVideoSelected) {
-      const videoData = this.detectedVideos.get(videoId);
       if (videoData) {
         await this.onVideoSelected(videoData);
       }
     }
+  }
+
+  async sendVideoToServer(videoData) {
+    try {
+      console.log('📤 Sending video to server for processing:', videoData.title);
+
+      // Use global config loaded by manifest
+      const config = window.EXTENSION_CONFIG;
+      if (!config) {
+        throw new Error('Extension configuration not loaded');
+      }
+
+      const response = await fetch(`${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          videoUrl: videoData.src,
+          title: videoData.title,
+          quality: videoData.quality,
+          platform: videoData.platform || 'html5',
+          duration: videoData.duration,
+          metadata: {
+            width: videoData.width,
+            height: videoData.height,
+            category: videoData.category,
+            thumbnail: videoData.thumbnail
+          }
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Video processing started:', result);
+
+        // Show success notification with download option
+        this.showNotificationWithDownload(
+          'Demo processing completed!',
+          `"${videoData.title}" is ready for download`,
+          result.downloadUrl,
+          result.processId
+        );
+
+        // Store processing ID for later download
+        await chrome.runtime.sendMessage({
+          action: 'videoProcessingStarted',
+          videoId: videoData.id,
+          processId: result.processId,
+          downloadUrl: result.downloadUrl,
+          title: videoData.title
+        });
+      } else {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Failed to send video to server:', error);
+      this.showNotification('Processing failed', `Failed to process "${videoData.title}"`);
+    }
+  }
+
+  showNotification(title, message) {
+    // Create a simple notification overlay
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #2196f3;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 10001;
+      max-width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    `;
+
+    notification.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 4px;">${title}</div>
+      <div style="opacity: 0.9;">${message}</div>
+    `;
+
+    document.body.appendChild(notification);
+
+    // Remove notification after 4 seconds
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 4000);
+  }
+
+  showNotificationWithDownload(title, message, downloadUrl, processId) {
+    // Create a notification with download button
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #4caf50;
+      color: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 10001;
+      max-width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+    `;
+
+    notification.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 4px;">${title}</div>
+      <div style="opacity: 0.9; margin-bottom: 12px;">${message}</div>
+      <button id="download-btn-${processId}" style="
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        width: 100%;
+        transition: background 0.2s ease;
+      ">📥 Download Demo Video</button>
+    `;
+
+    document.body.appendChild(notification);
+
+    // Add download button functionality
+    const downloadBtn = notification.querySelector(`#download-btn-${processId}`);
+    downloadBtn.addEventListener('click', () => {
+      console.log('🎬 Starting demo download:', downloadUrl);
+
+      // Create a hidden link to trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `demo-video-${processId}.mp4`;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Update button to show download started
+      downloadBtn.innerHTML = '✅ Download Started';
+      downloadBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+      downloadBtn.disabled = true;
+    });
+
+    downloadBtn.addEventListener('mouseenter', () => {
+      if (!downloadBtn.disabled) {
+        downloadBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+      }
+    });
+
+    downloadBtn.addEventListener('mouseleave', () => {
+      if (!downloadBtn.disabled) {
+        downloadBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+      }
+    });
+
+    // Remove notification after 10 seconds (longer for download option)
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.parentNode.removeChild(notification);
+      }
+    }, 10000);
   }
 
   async notifyVideoSelection(videoData) {

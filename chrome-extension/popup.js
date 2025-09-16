@@ -319,8 +319,11 @@ class PopupManager {
   }
 
   async handleViewStatus() {
-    // Open the web dashboard
-    chrome.tabs.create({ url: 'http://localhost:3000' });
+    // Use the same config format as content script
+    const config = {
+      API_SERVER_URL: 'http://localhost:3000'
+    };
+    chrome.tabs.create({ url: config.API_SERVER_URL });
   }
 
   updateVideoSection() {

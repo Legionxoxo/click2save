@@ -19,28 +19,19 @@
   "host_permissions": [
     "<all_urls>",
     "http://localhost:3000/*",
-    "http://10.10.10.62/*",
-    "http://10.10.10.62:3000/*"
+    "https://localhost:3000/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
-    {
-      "matches": [
-        "http://localhost:3000/*",
-        "http://localhost:3001/*"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "run_at": "document_start"
-    },
     {
       "matches": [
         "<all_urls>"
       ],
       "js": [
+        "config.js",
         "content.js"
       ],
       "css": [

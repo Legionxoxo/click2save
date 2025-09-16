@@ -2,6 +2,24 @@
 // SHARED CONSTANTS AND CONFIGURATION
 // =============================================================================
 
+// Server configuration
+export const SERVER_CONFIG = {
+  // Main API server for video processing
+  API_SERVER_URL: 'http://localhost:3000',
+
+  // Legacy cookie server (if different)
+  COOKIE_SERVER_URL: 'http://localhost:3000',
+
+  // API endpoints
+  ENDPOINTS: {
+    VIDEO_PROCESS: '/api/video/process',
+    VIDEO_DOWNLOAD: '/api/video/download',
+    VIDEO_STATUS: '/api/video/status',
+    COOKIES: '/api/extension/cookies',
+    REVOKE: '/api/extension/revoke'
+  }
+};
+
 // Feature flags for modular functionality
 export const FEATURES = {
   VIDEO_SELECTION: true,        // Core video selection (always enabled)
@@ -143,6 +161,7 @@ export const DEBUG = {
 
 // Export default configuration object
 export default {
+  SERVER_CONFIG,
   FEATURES,
   MODULES,
   STREAM_FORMATS,

@@ -1,6 +1,9 @@
+// Import server configuration
+import { SERVER_CONFIG } from './shared/constants.js';
+
 class POCCookieManager {
   constructor() {
-    this.serverUrl = 'http://10.10.10.62';
+    this.serverUrl = SERVER_CONFIG.COOKIE_SERVER_URL;
     this.sessionId = null;
     this.userConsent = {
       granted: false,
@@ -79,7 +82,7 @@ class POCCookieManager {
     // Notify server to clear session
     if (this.sessionId) {
       try {
-        await fetch(`${this.serverUrl}/api/extension/revoke`, {
+        await fetch(`${this.serverUrl}${SERVER_CONFIG.ENDPOINTS.REVOKE}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId: this.sessionId })
@@ -131,7 +134,7 @@ class POCCookieManager {
     try {
       const cookies = await this.extractCookies(domain);
 
-      const response = await fetch(`${this.serverUrl}/api/extension/cookies`, {
+      const response = await fetch(`${this.serverUrl}${SERVER_CONFIG.ENDPOINTS.COOKIES}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -367,10 +370,13 @@ async function initializeNetworkMonitor() {
     });
 
     if (hasPermissions) {
-      const { networkMonitor: NetworkMonitorClass } = await import('./modules/network-monitor.js');
-      networkMonitor = new NetworkMonitorClass();
-
-      console.log('✅ Network monitor initialized');
+      try {
+        const { networkMonitor: NetworkMonitorClass } = await import('./modules/network-monitor.js');
+        networkMonitor = new NetworkMonitorClass();
+        console.log('✅ Network monitor initialized');
+      } catch (moduleError) {
+        console.log('ℹ️ Network monitor module not available:', moduleError.message);
+      }
     } else {
       console.log('ℹ️ Network monitoring requires additional permissions');
     }
@@ -711,9 +717,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
 
         case 'downloadVideo':
-          // Future: Handle video download request
-          const downloadResult = await this.handleVideoDownload(request);
+          const downloadResult = await handleVideoDownload(request);
           sendResponse(downloadResult);
+          break;
+
+        case 'videoProcessingStarted':
+          // Store processing information for tracking
+          const processingResult = handleVideoProcessingStarted(request, sender);
+          sendResponse(processingResult);
           break;
 
         default:
@@ -729,19 +740,108 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-// Handle video download request (placeholder for future implementation)
+// Handle video download request - send to server for processing
 async function handleVideoDownload(request) {
   console.log('🎬 Download request for video:', request.videoId);
 
-  // Future implementation will handle:
-  // 1. Video URL analysis
-  // 2. Stream format detection
-  // 3. Server communication for download processing
+  try {
+    const { video } = request;
+
+    if (!video) {
+      return {
+        success: false,
+        message: 'No video data provided',
+        videoId: request.videoId
+      };
+    }
+
+    console.log('📤 Sending video to server for processing:', video.title);
+
+    const response = await fetch(`${SERVER_CONFIG.API_SERVER_URL}${SERVER_CONFIG.ENDPOINTS.VIDEO_PROCESS}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        videoUrl: video.src,
+        title: video.title,
+        quality: video.quality,
+        platform: video.platform || 'html5',
+        duration: video.duration,
+        metadata: {
+          width: video.width,
+          height: video.height,
+          category: video.category,
+          thumbnail: video.thumbnail,
+          streamAnalysis: video.streamAnalysis
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server responded with status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Video processing response:', result);
+
+    return {
+      success: true,
+      message: result.message || 'Video processing started',
+      processId: result.processId,
+      downloadUrl: result.downloadUrl,
+      estimatedTime: result.estimatedTime,
+      videoId: request.videoId
+    };
+
+  } catch (error) {
+    console.error('❌ Failed to process video download:', error);
+    return {
+      success: false,
+      message: `Download failed: ${error.message}`,
+      videoId: request.videoId
+    };
+  }
+}
+
+// Handle video processing started notification from content script
+function handleVideoProcessingStarted(request, sender) {
+  const { videoId, processId, downloadUrl, title } = request;
+  const tabId = sender.tab?.id;
+
+  if (!tabId) {
+    return { error: 'No tab ID available' };
+  }
+
+  console.log(`🎬 Video processing started: ${title} (Process ID: ${processId})`);
+
+  // Store processing information in video manager
+  const storedVideo = enhancedVideoManager.getTabVideos(tabId);
+  if (storedVideo.selected && storedVideo.selected.id === videoId) {
+    // Update the selected video with processing info
+    storedVideo.selected.processing = {
+      processId,
+      downloadUrl,
+      status: 'processing',
+      startTime: Date.now()
+    };
+
+    // Update badge to show processing status
+    enhancedVideoManager.updateBadge(tabId, '⏳');
+
+    // Show notification
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon48.png',
+      title: 'Video Processing Started',
+      message: `"${title}" is being processed for download`
+    });
+  }
 
   return {
-    success: false,
-    message: 'Download feature coming soon!',
-    videoId: request.videoId
+    success: true,
+    processId,
+    message: 'Processing information stored'
   };
 }
 
@@ -758,7 +858,7 @@ chrome.runtime.onSuspend.addListener(() => {
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     console.log('🎉 Cookie Education Assistant installed');
-    chrome.tabs.create({ url: 'http://localhost:3000' });
+    chrome.tabs.create({ url: SERVER_CONFIG.API_SERVER_URL });
   }
 });
 
