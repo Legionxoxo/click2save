@@ -2,7 +2,18 @@ const logger = require('../configs/logger.config');
 
 const analyseLink = async (req, res, next) => {
   try {
-    const { videoUrl, title, quality, platform, duration, metadata, m3u8Urls, detectedStreams, cookies, sessionId } = req.body;
+    const {
+      videoUrl,
+      title,
+      quality,
+      platform,
+      duration,
+      metadata,
+      m3u8Urls,
+      detectedStreams,
+      cookies,
+      sessionId,
+    } = req.body;
 
     // Validate required fields
     if (!videoUrl) {
@@ -20,7 +31,7 @@ const analyseLink = async (req, res, next) => {
       m3u8Count: m3u8Urls?.length || 0,
       streamCount: detectedStreams?.length || 0,
       cookieCount: cookies?.length || 0,
-      hasSessionId: !!sessionId
+      hasSessionId: !!sessionId,
     });
 
     // Log cookie information if provided
@@ -28,7 +39,7 @@ const analyseLink = async (req, res, next) => {
       logger.info('Cookies received for video processing', {
         domain: cookies[0]?.domain || 'unknown',
         cookieCount: cookies.length,
-        sessionId: sessionId
+        sessionId: sessionId,
       });
       console.log('🍪 Cookies received for video download authentication');
     }
@@ -48,7 +59,9 @@ const analyseLink = async (req, res, next) => {
     if (detectedStreams && detectedStreams.length > 0) {
       console.log('📊 All detected streams:');
       detectedStreams.forEach((stream, index) => {
-        console.log(`  ${index + 1}. Format: ${stream.format}, Quality: ${stream.quality || 'unknown'}`);
+        console.log(
+          `  ${index + 1}. Format: ${stream.format}, Quality: ${stream.quality || 'unknown'}`
+        );
         console.log(`     URL: ${stream.url.substring(0, 100)}...`);
       });
     }

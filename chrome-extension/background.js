@@ -132,6 +132,9 @@ chrome.webRequest.onCompleted.addListener(
         if (streamData.format === 'HLS') {
           console.log(`🔥 M3U8 FOUND:`, url);
         }
+
+        // Notify content script about captured stream
+        notifyContentScriptAboutStream(tabId, streamData);
       }
     }
   },
@@ -185,6 +188,44 @@ function extractDomain(url) {
     return new URL(url).hostname;
   } catch {
     return null;
+  }
+}
+
+// Notify content script about newly captured streams
+async function notifyContentScriptAboutStream(tabId, streamData) {
+  try {
+    // Only notify for significant stream types that users would want to download
+    const significantFormats = ['HLS', 'DASH', 'PROGRESSIVE'];
+    if (!significantFormats.includes(streamData.format)) {
+      return;
+    }
+
+    console.log(`📡 Notifying content script about ${streamData.format} stream for tab ${tabId}`);
+
+    const streamMessage = {
+      action: 'streamCaptured',
+      stream: {
+        id: `captured_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+        title: `${streamData.format} Stream (${streamData.domain})`,
+        src: streamData.url,
+        format: streamData.format,
+        quality: streamData.quality,
+        domain: streamData.domain,
+        timestamp: streamData.timestamp,
+        category: 'captured',
+        width: streamData.quality === '1080p+' ? 1920 : streamData.quality === '720p' ? 1280 : 854,
+        height: streamData.quality === '1080p+' ? 1080 : streamData.quality === '720p' ? 720 : 480,
+        isPlaying: false,
+        platform: 'network-captured'
+      }
+    };
+
+    console.log('📡 Sending stream to content script:', streamMessage.stream);
+
+    await chrome.tabs.sendMessage(tabId, streamMessage);
+  } catch (error) {
+    // Content script might not be ready yet, which is fine
+    console.log(`📡 Could not notify content script for tab ${tabId}:`, error.message);
   }
 }
 
@@ -702,7 +743,7 @@ async function handleVideoDownload(request) {
   console.log('🎬 Download request for video:', request.videoId);
 
   try {
-    const { video } = request;
+    const { video, tabId } = request;
 
     if (!video) {
       return {
@@ -714,31 +755,108 @@ async function handleVideoDownload(request) {
 
     console.log('📤 Sending video to server for processing:', video.title);
 
+    // Get cookies for the video's domain
+    let cookies = [];
+    let domain = 'unknown';
+    try {
+      const videoUrl = video.src || '';
+      try {
+        domain = new URL(videoUrl).hostname;
+      } catch {
+        // If video URL is invalid, use current tab's domain
+        if (tabId) {
+          const tab = await chrome.tabs.get(tabId);
+          if (tab && tab.url) {
+            domain = new URL(tab.url).hostname;
+          }
+        }
+      }
+
+      console.log(`🍪 Getting cookies for domain: ${domain}`);
+      const cookieResponse = await chrome.cookies.getAll({ domain });
+      cookies = cookieResponse || [];
+      console.log(`📋 Retrieved ${cookies.length} cookies for ${domain}`);
+    } catch (cookieError) {
+      console.warn('⚠️ Failed to get cookies:', cookieError.message);
+      cookies = [];
+    }
+
+    // Clean up cookies to avoid serialization issues
+    const cleanCookies = cookies.map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite
+    }));
+
+    const payload = {
+      videoUrl: video.src,
+      title: video.title,
+      quality: video.quality,
+      platform: video.platform || 'html5',
+      duration: video.duration,
+      m3u8Urls: await getM3U8UrlsForTab(tabId),
+      detectedStreams: await getStreamDataForTab(tabId),
+      cookies: cleanCookies,
+      sessionId: `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      metadata: {
+        width: video.width,
+        height: video.height,
+        category: video.category,
+        thumbnail: video.thumbnail,
+        streamAnalysis: video.streamAnalysis,
+        streamCount: payload.detectedStreams.length,
+        domain: domain
+      }
+    };
+
+    console.log('📤 Background script payload:', {
+      videoUrl: payload.videoUrl,
+      title: payload.title,
+      cookieCount: payload.cookies.length,
+      m3u8Count: payload.m3u8Urls.length,
+      streamCount: payload.detectedStreams.length
+    });
+
+    // Debug: Log the full payload structure to identify issues
+    console.log('🔍 FULL PAYLOAD DEBUG:', JSON.stringify(payload, null, 2));
+
+    // Validate videoUrl before sending
+    if (!payload.videoUrl || payload.videoUrl.trim() === '') {
+      console.error('❌ CRITICAL: videoUrl is empty!', {
+        originalVideoSrc: video.src,
+        videoData: video,
+        m3u8UrlsAvailable: payload.m3u8Urls,
+        detectedStreamsAvailable: payload.detectedStreams
+      });
+      throw new Error(`Invalid video URL: "${payload.videoUrl}". Original src: "${video.src}"`);
+    }
+
     const response = await fetch(`http://localhost:3000/api/video/process`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        videoUrl: video.src,
-        title: video.title,
-        quality: video.quality,
-        platform: video.platform || 'html5',
-        duration: video.duration,
-        m3u8Urls: await getM3U8UrlsForTab(request.tabId),
-        metadata: {
-          width: video.width,
-          height: video.height,
-          category: video.category,
-          thumbnail: video.thumbnail,
-          streamAnalysis: video.streamAnalysis,
-          detectedStreams: await getStreamDataForTab(request.tabId)
-        }
-      })
+      body: JSON.stringify(payload)
     });
 
+    console.log(`📡 Server response: ${response.status} ${response.statusText}`);
+
     if (!response.ok) {
-      throw new Error(`Server responded with status: ${response.status}`);
+      let errorMessage = `Server responded with status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorData.error || errorMessage;
+        console.error('❌ Server error details:', errorData);
+      } catch (e) {
+        const errorText = await response.text();
+        console.error('❌ Raw server error:', errorText);
+        errorMessage += ` - ${errorText}`;
+      }
+      throw new Error(errorMessage);
     }
 
     const result = await response.json();

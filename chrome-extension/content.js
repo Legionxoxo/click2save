@@ -90,6 +90,12 @@ class VideoDetectionManager {
     }
 
     videoElements.forEach((element, index) => {
+      // Safety check: ensure element is still valid
+      if (!element || !element.parentNode) {
+        console.log('⚠️ Skipping null or detached element');
+        return;
+      }
+
       const videoId = this.generateVideoId(element, index);
 
       if (!this.detectedVideos.has(videoId)) {
@@ -122,13 +128,41 @@ class VideoDetectionManager {
   generateVideoId(element, index) {
     // Create unique ID based on element attributes and position
     const src = element.src || element.getAttribute('data-src') || '';
-    const rect = element.getBoundingClientRect();
+
+    // Handle case where element might be null (for captured streams)
+    let rect = { width: 0, height: 0 };
+    if (element) {
+      rect = element.getBoundingClientRect();
+    }
+
     return `video_${btoa(src + rect.width + rect.height + index)
       .replace(/[^a-zA-Z0-9]/g, '')
       .substring(0, 12)}`;
   }
 
   extractVideoMetadata(element, videoId) {
+    // Handle case where element might be null (for captured streams)
+    if (!element) {
+      return {
+        id: videoId,
+        type: 'captured',
+        src: '',
+        title: 'Captured Stream',
+        duration: 0,
+        currentTime: 0,
+        width: 1280,
+        height: 720,
+        isPlaying: false,
+        hasControls: false,
+        isAutoplay: false,
+        isMuted: false,
+        isVisible: true,
+        zIndex: 0,
+        quality: 'unknown',
+        thumbnail: null
+      };
+    }
+
     const rect = element.getBoundingClientRect();
     const computedStyle = window.getComputedStyle(element);
 
@@ -162,6 +196,11 @@ class VideoDetectionManager {
   }
 
   extractVideoSrc(element) {
+    // Safety check for null element
+    if (!element) {
+      return '';
+    }
+
     // Handle different ways videos are referenced on social media
     const src =
       element.src ||
@@ -224,6 +263,11 @@ class VideoDetectionManager {
   }
 
   extractTitle(element) {
+    // Safety check for null element
+    if (!element) {
+      return 'Captured Stream';
+    }
+
     // Try multiple methods to get video title
     const titleSources = [
       element.getAttribute('title'),
@@ -246,6 +290,11 @@ class VideoDetectionManager {
   }
 
   extractThumbnail(element) {
+    // Safety check for null element
+    if (!element) {
+      return null;
+    }
+
     if (element.tagName === 'VIDEO') {
       return element.poster || this.generateVideoThumbnail(element);
     } else if (element.tagName === 'IFRAME') {
@@ -271,6 +320,11 @@ class VideoDetectionManager {
   }
 
   categorizeVideo(element, metadata) {
+    // Handle case where element might be null (for captured streams)
+    if (!element) {
+      return 'captured';
+    }
+
     const rect = element.getBoundingClientRect();
     const parent = element.parentElement;
 
@@ -480,6 +534,11 @@ class VideoDetectionManager {
   }
 
   positionOverlay(videoElement, overlay) {
+    // Skip positioning for null elements (captured streams)
+    if (!videoElement) {
+      return;
+    }
+
     const rect = videoElement.getBoundingClientRect();
     const scrollX = window.pageXOffset;
     const scrollY = window.pageYOffset;
@@ -492,6 +551,11 @@ class VideoDetectionManager {
   }
 
   insertOverlay(videoElement, overlay) {
+    // Skip DOM insertion for null elements (captured streams use banner instead)
+    if (!videoElement) {
+      return;
+    }
+
     // Try to insert overlay as sibling to maintain proper positioning
     const parent = videoElement.parentElement;
     if (parent) {
@@ -714,6 +778,12 @@ class VideoDetectionManager {
       .querySelectorAll('.video-selected-indicator')
       .forEach(el => el.remove());
 
+    // Skip visual indicator for null elements (captured streams)
+    if (!element) {
+      console.log('📺 Stream selected (captured stream - no visual indicator)');
+      return;
+    }
+
     // Add selection border
     const indicator = document.createElement('div');
     indicator.className = 'video-selected-indicator';
@@ -887,12 +957,14 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
 
       console.log('🔍 Video URL Selection Process:');
       console.log('  📁 Video element src:', videoData.src);
+      console.log('  🏷️ Video category:', videoData.category);
       console.log('  🌐 Network streams available:', {
         bestStream: bestStreamResponse.success ? bestStreamResponse.streamUrl : 'none',
         m3u8Count: m3u8Data?.m3u8Urls?.length || 0,
         allStreamCount: m3u8Data?.allStreams?.length || 0
       });
 
+      // For captured streams, prefer the existing stream URL, but still check for better network streams
       if (bestStreamResponse.success && bestStreamResponse.streamUrl) {
         primaryVideoUrl = bestStreamResponse.streamUrl;
         console.log('🎯 SELECTED: Network-captured stream URL');
@@ -907,10 +979,31 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         primaryVideoUrl = m3u8Data.allStreams[0].url;
         console.log('🎯 SELECTED: Detected stream');
         console.log('   📺 Full URL:', primaryVideoUrl);
+      } else if (videoData.category === 'captured' && videoData.src) {
+        // Use pre-captured stream URL as fallback
+        primaryVideoUrl = videoData.src;
+        console.log('🎯 SELECTED: Pre-captured stream URL (from category)');
+        console.log('   📺 Full URL:', primaryVideoUrl);
       } else {
         console.log('⚠️ FALLBACK: Using video element src');
         console.log('   📺 Full URL:', primaryVideoUrl);
       }
+
+      // Validation: ensure we have a valid URL
+      if (!primaryVideoUrl || primaryVideoUrl.trim() === '') {
+        throw new Error(`No valid video URL found. VideoData src: "${videoData.src}", Category: "${videoData.category}"`);
+      }
+
+      // Clean up cookies to avoid serialization issues
+      const cleanCookies = cookies.map(cookie => ({
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        sameSite: cookie.sameSite
+      }));
 
       const payload = {
         videoUrl: primaryVideoUrl,
@@ -920,7 +1013,7 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         duration: videoData.duration,
         m3u8Urls: m3u8Data?.m3u8Urls || [],
         detectedStreams: m3u8Data?.allStreams || [],
-        cookies: cookies,
+        cookies: cleanCookies,
         sessionId: `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
         metadata: {
           width: videoData.width,
@@ -939,23 +1032,39 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         cookieCount: cookies.length,
         m3u8Count: payload.m3u8Urls.length,
         streamCount: payload.detectedStreams.length,
-        fullPayload: payload
+        payloadSize: JSON.stringify(payload).length
       });
 
-      const response = await fetch(
-        `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        }
-      );
+      // Debug: Log the full payload structure to identify issues
+      console.log('🔍 CONTENT SCRIPT FULL PAYLOAD DEBUG:', JSON.stringify(payload, null, 2));
+
+      let response;
+      try {
+        console.log('🔄 Attempting to serialize and send payload...');
+        const payloadJson = JSON.stringify(payload);
+        console.log('✅ Payload serialized successfully, length:', payloadJson.length);
+
+        response = await fetch(
+          `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: payloadJson,
+          }
+        );
+
+        console.log('📡 Fetch completed, status:', response.status, response.statusText);
+      } catch (fetchError) {
+        console.error('❌ Fetch error:', fetchError);
+        throw new Error(`Network request failed: ${fetchError.message}`);
+      }
 
       if (response.ok) {
-        const result = await response.json();
-        console.log('✅ Video processing started:', result);
+        try {
+          const result = await response.json();
+          console.log('✅ Video processing started:', result);
 
         // Show success notification with download option
         this.showNotificationWithDownload(
@@ -965,16 +1074,30 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
           result.processId
         );
 
-        // Store processing ID for later download
-        await chrome.runtime.sendMessage({
-          action: 'videoProcessingStarted',
-          videoId: videoData.id,
-          processId: result.processId,
-          downloadUrl: result.downloadUrl,
-          title: videoData.title,
-        });
+          // Store processing ID for later download
+          await chrome.runtime.sendMessage({
+            action: 'videoProcessingStarted',
+            videoId: videoData.id,
+            processId: result.processId,
+            downloadUrl: result.downloadUrl,
+            title: videoData.title,
+          });
+        } catch (jsonError) {
+          console.error('❌ Failed to parse server response:', jsonError);
+          throw new Error(`Server response parsing failed: ${jsonError.message}`);
+        }
       } else {
-        throw new Error(`Server responded with status: ${response.status}`);
+        let errorText = `Server responded with status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorText = errorData.message || errorData.error || errorText;
+          console.error('❌ Server error response:', errorData);
+        } catch (e) {
+          const rawResponse = await response.text();
+          console.error('❌ Raw server error response:', rawResponse);
+          errorText += ` - ${rawResponse}`;
+        }
+        throw new Error(errorText);
       }
     } catch (error) {
       console.error('❌ Failed to send video to server:', error);
@@ -1138,3 +1261,273 @@ enhancedVideoManager.selectedVideo = videoManager.selectedVideo;
 
 // Expose enhanced manager to global scope
 window.videoManager = enhancedVideoManager;
+
+// =============================================================================
+// MESSAGE HANDLING FOR STREAM CAPTURE NOTIFICATIONS
+// =============================================================================
+
+// Listen for messages from background script about captured streams
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('📨 Content script received message:', request);
+
+  switch (request.action) {
+    case 'streamCaptured':
+      handleCapturedStream(request.stream);
+      sendResponse({ success: true });
+      break;
+
+    case 'rescanVideos':
+      enhancedVideoManager.scanForVideos();
+      sendResponse({ success: true });
+      break;
+
+    default:
+      console.log('❓ Unknown message action:', request.action);
+      sendResponse({ success: false, error: 'Unknown action' });
+  }
+
+  return true; // Keep the message channel open for async response
+});
+
+// Handle captured stream notifications from background script
+function handleCapturedStream(streamData) {
+  console.log('🎯 Handling captured stream:', streamData);
+
+  // Add to detected videos map
+  enhancedVideoManager.detectedVideos.set(streamData.id, {
+    ...streamData,
+    detected: new Date().toISOString(),
+    element: null // No DOM element for captured streams
+  });
+
+  // Create a virtual overlay for the captured stream
+  createVirtualStreamOverlay(streamData);
+
+  // Notify background about the detected video
+  enhancedVideoManager.notifyBackgroundScript();
+
+  console.log(`✅ Added captured stream to overlay: ${streamData.title}`);
+}
+
+// Create a virtual overlay for captured streams (no DOM element)
+function createVirtualStreamOverlay(streamData) {
+  // Create a notification banner for captured streams
+  const banner = createStreamCaptureBanner(streamData);
+
+  // Store reference to banner
+  enhancedVideoManager.overlays.set(streamData.id, banner);
+
+  console.log(`📺 Created virtual overlay for: ${streamData.title}`);
+}
+
+// Create a banner notification for captured streams
+function createStreamCaptureBanner(streamData) {
+  // Check if we already have a stream banner
+  let existingBanner = document.querySelector('.captured-streams-banner');
+
+  if (!existingBanner) {
+    // Create the main banner container
+    existingBanner = document.createElement('div');
+    existingBanner.className = 'captured-streams-banner';
+    existingBanner.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      background: rgba(25, 118, 210, 0.95);
+      color: white;
+      padding: 16px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 10001;
+      max-width: 400px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    `;
+
+    existingBanner.innerHTML = `
+      <div style="display: flex; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 20px; margin-right: 8px;">🎬</span>
+        <strong>Detected Videos:</strong>
+      </div>
+      <div class="stream-list" style="margin-left: 28px;">
+        <!-- Stream items will be added here -->
+      </div>
+      <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; margin-left: 28px;">
+        Click to see download options
+      </div>
+    `;
+
+    // Add click handler to show all video overlays
+    existingBanner.addEventListener('click', () => {
+      showAllCapturedStreams();
+    });
+
+    document.body.appendChild(existingBanner);
+  }
+
+  // Add this stream to the banner
+  const streamList = existingBanner.querySelector('.stream-list');
+  const streamItem = document.createElement('div');
+  streamItem.className = 'stream-item';
+  streamItem.dataset.streamId = streamData.id;
+  streamItem.style.cssText = `
+    margin: 4px 0;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+  `;
+
+  streamItem.innerHTML = `
+    <div style="font-weight: 500;">${streamData.title}</div>
+    <div style="font-size: 12px; opacity: 0.8;">
+      ${streamData.format} • ${streamData.quality || 'unknown quality'}
+    </div>
+  `;
+
+  // Add click handler for individual stream
+  streamItem.addEventListener('click', (e) => {
+    e.stopPropagation();
+    enhancedVideoManager.selectVideo(streamData.id);
+  });
+
+  // Add hover effects
+  streamItem.addEventListener('mouseenter', () => {
+    streamItem.style.background = 'rgba(255, 255, 255, 0.2)';
+  });
+
+  streamItem.addEventListener('mouseleave', () => {
+    streamItem.style.background = 'rgba(255, 255, 255, 0.1)';
+  });
+
+  streamList.appendChild(streamItem);
+
+  // Auto-hide banner after 8 seconds if not interacted with
+  setTimeout(() => {
+    if (existingBanner && existingBanner.parentNode && !existingBanner.matches(':hover')) {
+      existingBanner.style.opacity = '0.7';
+      existingBanner.style.transform = 'translateX(-10px)';
+    }
+  }, 8000);
+
+  return existingBanner;
+}
+
+// Show options for all captured streams
+function showAllCapturedStreams() {
+  console.log('📋 Showing all captured streams');
+
+  const capturedStreams = Array.from(enhancedVideoManager.detectedVideos.values())
+    .filter(video => video.category === 'captured');
+
+  if (capturedStreams.length === 0) {
+    console.log('❌ No captured streams found');
+    return;
+  }
+
+  // Create a selection dialog
+  const dialog = document.createElement('div');
+  dialog.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10002;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+
+  const dialogContent = document.createElement('div');
+  dialogContent.style.cssText = `
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  `;
+
+  const streamItems = capturedStreams.map(stream => `
+    <div class="stream-option" data-stream-id="${stream.id}" style="
+      padding: 16px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      margin: 8px 0;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    ">
+      <div style="font-weight: 600; margin-bottom: 4px;">${stream.title}</div>
+      <div style="color: #666; font-size: 14px; margin-bottom: 8px;">
+        ${stream.format} • ${stream.quality || 'unknown quality'} • ${stream.domain}
+      </div>
+      <div style="font-size: 12px; color: #999;">
+        Captured: ${new Date(stream.timestamp).toLocaleTimeString()}
+      </div>
+    </div>
+  `).join('');
+
+  dialogContent.innerHTML = `
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+      <span style="font-size: 24px; margin-right: 12px;">🎬</span>
+      <h3 style="margin: 0; color: #333;">Select Video to Download</h3>
+    </div>
+    <div style="color: #666; margin-bottom: 16px;">
+      Choose from ${capturedStreams.length} detected video stream${capturedStreams.length > 1 ? 's' : ''}:
+    </div>
+    ${streamItems}
+    <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+      <button id="close-dialog" style="
+        padding: 10px 20px;
+        border: 1px solid #ddd;
+        background: white;
+        border-radius: 6px;
+        cursor: pointer;
+        color: #666;
+      ">Cancel</button>
+    </div>
+  `;
+
+  dialog.appendChild(dialogContent);
+  document.body.appendChild(dialog);
+
+  // Add click handlers
+  dialogContent.querySelector('#close-dialog').addEventListener('click', () => {
+    document.body.removeChild(dialog);
+  });
+
+  // Add stream selection handlers
+  dialogContent.querySelectorAll('.stream-option').forEach(option => {
+    option.addEventListener('click', () => {
+      const streamId = option.dataset.streamId;
+      document.body.removeChild(dialog);
+      enhancedVideoManager.selectVideo(streamId);
+    });
+
+    // Add hover effect
+    option.addEventListener('mouseenter', () => {
+      option.style.backgroundColor = '#f5f5f5';
+      option.style.borderColor = '#1976d2';
+    });
+
+    option.addEventListener('mouseleave', () => {
+      option.style.backgroundColor = 'white';
+      option.style.borderColor = '#e0e0e0';
+    });
+  });
+
+  // Close on background click
+  dialog.addEventListener('click', (e) => {
+    if (e.target === dialog) {
+      document.body.removeChild(dialog);
+    }
+  });
+}

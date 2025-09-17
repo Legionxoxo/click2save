@@ -11,6 +11,6 @@ router.post('/process', analyseLink);
 
 router.get('/status/:processId', processStatus);
 
-router.post('/download/:processId', downloadLink);
+router.get('/download/:processId', downloadLink);
 
 module.exports = router;

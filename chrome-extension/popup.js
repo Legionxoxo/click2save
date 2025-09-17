@@ -537,7 +537,8 @@ class PopupManager {
       const response = await chrome.runtime.sendMessage({
         action: 'downloadVideo',
         videoId: video.id,
-        video: video
+        video: video,
+        tabId: this.currentTab?.id
       });
 
       if (response.success) {
