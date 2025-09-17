@@ -472,21 +472,12 @@ class PopupManager {
     const actions = document.createElement('div');
     actions.className = 'video-actions';
 
-    const downloadBtn = document.createElement('button');
-    downloadBtn.className = 'video-download-btn-small';
-    downloadBtn.textContent = '📥';
-    downloadBtn.title = 'Download this video';
-    downloadBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.handleVideoDownload(video);
-    });
-
-    actions.appendChild(downloadBtn);
+    // Remove download functionality from popup - videos will be sent to backend automatically
 
     // Assemble item
     item.appendChild(thumbnail);
     item.appendChild(info);
-    item.appendChild(actions);
+    // Don't add actions div since we removed download functionality
 
     // Add click handler for item selection
     item.addEventListener('click', () => {
@@ -518,47 +509,7 @@ class PopupManager {
     console.log('📋 Video selected from popup:', video.title);
   }
 
-  async handleVideoDownload(video) {
-    if (!this.consentStatus.granted) {
-      this.showError('Please enable cookie learning first to download videos');
-      return;
-    }
-
-    console.log('🎬 Initiating download for:', video.title);
-
-    try {
-      // Show loading state
-      const downloadBtns = document.querySelectorAll('.video-download-btn-small');
-      downloadBtns.forEach(btn => {
-        btn.textContent = '⏳';
-        btn.disabled = true;
-      });
-
-      const response = await chrome.runtime.sendMessage({
-        action: 'downloadVideo',
-        videoId: video.id,
-        video: video,
-        tabId: this.currentTab?.id
-      });
-
-      if (response.success) {
-        this.showSuccess(`Download started for: ${video.title}`);
-      } else {
-        this.showError(response.message || 'Download failed');
-      }
-    } catch (error) {
-      this.showError('Failed to start download: ' + error.message);
-    } finally {
-      // Reset button states
-      setTimeout(() => {
-        const downloadBtns = document.querySelectorAll('.video-download-btn-small');
-        downloadBtns.forEach(btn => {
-          btn.textContent = '📥';
-          btn.disabled = false;
-        });
-      }, 2000);
-    }
-  }
+  // Download functionality removed - videos are automatically processed by the extension
 
   createAnalysisBadge(video) {
     const badge = document.createElement('span');

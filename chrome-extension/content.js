@@ -736,17 +736,45 @@ class VideoDetectionManager {
   }
 
   async processVideoWithCookies(videoData) {
+    console.log('🚀 Starting processVideoWithCookies for:', videoData.title);
+    console.log('📋 Video data:', {
+      id: videoData.id,
+      title: videoData.title,
+      src: videoData.src,
+      category: videoData.category,
+      domain: videoData.domain
+    });
+
     try {
+      // Check if config is available
+      const config = window.EXTENSION_CONFIG;
+      if (!config) {
+        throw new Error('Extension configuration not loaded - config.js may not be available');
+      }
+      console.log('✅ Extension config loaded:', config);
+
       // Get cookies for current domain
       const domain = window.location.hostname;
-      const cookies = await this.getCookiesForDomain(domain);
+      console.log('🍪 Getting cookies for domain:', domain);
 
-      console.log(`🍪 Retrieved ${cookies.length} cookies for ${domain}`);
+      const cookies = await this.getCookiesForDomain(domain);
+      console.log(`✅ Retrieved ${cookies.length} cookies for ${domain}`);
 
       // Send video data with cookies to server
+      console.log('📤 About to send video to server...');
       await this.sendVideoToServerWithCookies(videoData, cookies);
+      console.log('✅ Successfully sent video to server');
+
     } catch (error) {
       console.error('❌ Error in processVideoWithCookies:', error);
+      console.error('❌ Error stack:', error.stack);
+
+      // Show more specific error message
+      this.showNotification(
+        'Processing Error',
+        `Failed to process "${videoData.title}": ${error.message}`
+      );
+
       throw error;
     } finally {
       // Remove processing indicator
@@ -908,8 +936,16 @@ class VideoDetectionManager {
 
 // Initialize video detection manager with debugging
 console.log('🚀 Initializing video detection system...');
+console.log('🔍 Checking if getVideoGroupingKey is defined:', typeof getVideoGroupingKey);
+
 const videoManager = new VideoDetectionManager();
 console.log('✅ Video manager created:', videoManager);
+
+// Debug: Log all available functions
+console.log('🔍 Available functions in global scope:');
+console.log('- getVideoGroupingKey:', typeof window.getVideoGroupingKey);
+console.log('- updateGroupedStreamBanner:', typeof updateGroupedStreamBanner);
+console.log('- createGroupedStreamBanner:', typeof createGroupedStreamBanner);
 
 // =============================================================================
 // STREAM ANALYSIS INTEGRATION
@@ -929,15 +965,26 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
 
   async sendVideoToServerWithCookies(videoData, cookies) {
     try {
+      console.log('📤 sendVideoToServerWithCookies called');
+      console.log('   📋 Video data:', videoData);
+      console.log('   🍪 Cookie count:', cookies.length);
       console.log(
         '📤 Sending video to server for processing:',
         videoData.title
       );
 
       // Get M3U8 URLs from background script network monitoring
-      const m3u8Data = await chrome.runtime.sendMessage({
-        action: 'getM3U8Urls',
-      });
+      console.log('📨 Requesting M3U8 URLs from background script...');
+      let m3u8Data;
+      try {
+        m3u8Data = await chrome.runtime.sendMessage({
+          action: 'getM3U8Urls',
+        });
+        console.log('✅ M3U8 request successful');
+      } catch (m3u8Error) {
+        console.error('❌ Failed to get M3U8 URLs from background:', m3u8Error);
+        m3u8Data = { m3u8Urls: [], allStreams: [] };
+      }
 
       console.log('🎯 M3U8 detection results:', m3u8Data);
 
@@ -948,9 +995,17 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
       }
 
       // Get the best stream URL from network monitoring
-      const bestStreamResponse = await chrome.runtime.sendMessage({
-        action: 'getBestStreamUrl'
-      });
+      console.log('📨 Requesting best stream URL from background script...');
+      let bestStreamResponse;
+      try {
+        bestStreamResponse = await chrome.runtime.sendMessage({
+          action: 'getBestStreamUrl'
+        });
+        console.log('✅ Best stream request successful:', bestStreamResponse);
+      } catch (streamError) {
+        console.error('❌ Failed to get best stream URL from background:', streamError);
+        bestStreamResponse = { success: false, streamUrl: null };
+      }
 
       // Prioritize network-captured stream URLs over video element src
       let primaryVideoUrl = videoData.src; // fallback
@@ -1025,8 +1080,9 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         },
       };
 
+      const endpoint = `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`;
       console.log('📤 Sending payload to server:', {
-        endpoint: `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
+        endpoint: endpoint,
         primaryVideoUrl: primaryVideoUrl,
         title: videoData.title,
         cookieCount: cookies.length,
@@ -1034,6 +1090,19 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         streamCount: payload.detectedStreams.length,
         payloadSize: JSON.stringify(payload).length
       });
+
+      // Quick server connectivity check
+      console.log('🔍 Testing server connectivity...');
+      try {
+        const testResponse = await fetch(config.API_SERVER_URL, {
+          method: 'GET',
+          timeout: 3000
+        });
+        console.log('✅ Server is reachable, status:', testResponse.status);
+      } catch (connectError) {
+        console.error('❌ Server connectivity issue:', connectError.message);
+        throw new Error(`Cannot reach server at ${config.API_SERVER_URL}. Is the server running?`);
+      }
 
       // Debug: Log the full payload structure to identify issues
       console.log('🔍 CONTENT SCRIPT FULL PAYLOAD DEBUG:', JSON.stringify(payload, null, 2));
@@ -1044,16 +1113,13 @@ class EnhancedVideoDetectionManager extends VideoDetectionManager {
         const payloadJson = JSON.stringify(payload);
         console.log('✅ Payload serialized successfully, length:', payloadJson.length);
 
-        response = await fetch(
-          `${config.API_SERVER_URL}${config.ENDPOINTS.VIDEO_PROCESS}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: payloadJson,
-          }
-        );
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: payloadJson,
+        });
 
         console.log('📡 Fetch completed, status:', response.status, response.statusText);
       } catch (fetchError) {
@@ -1300,132 +1366,382 @@ function handleCapturedStream(streamData) {
     element: null // No DOM element for captured streams
   });
 
-  // Create a virtual overlay for the captured stream
-  createVirtualStreamOverlay(streamData);
+  // Group streams by video name instead of creating individual overlays
+  updateGroupedStreamBanner();
 
   // Notify background about the detected video
   enhancedVideoManager.notifyBackgroundScript();
 
-  console.log(`✅ Added captured stream to overlay: ${streamData.title}`);
+  console.log(`✅ Added captured stream to grouped display: ${streamData.title}`);
 }
 
-// Create a virtual overlay for captured streams (no DOM element)
-function createVirtualStreamOverlay(streamData) {
-  // Create a notification banner for captured streams
-  const banner = createStreamCaptureBanner(streamData);
+// Enhanced video grouping - identify streams belonging to the same video
+function getVideoGroupingKey(stream) {
+  try {
+    if (!stream || !stream.src) {
+      return 'unknown-stream';
+    }
 
-  // Store reference to banner
-  enhancedVideoManager.overlays.set(streamData.id, banner);
+    const url = stream.src;
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const domain = urlObj.hostname;
 
-  console.log(`📺 Created virtual overlay for: ${streamData.title}`);
+    // Strategy 1: Look for common video identifiers in the path
+    const videoIdPatterns = [
+      /\/video[_-]?(\w+)/i,          // /video_123, /video-abc
+      /\/watch[_-]?(\w+)/i,          // /watch_123, /watch-abc
+      /\/v[_-]?(\w+)/i,              // /v_123, /v-abc
+      /\/(\w{8,})/,                  // Long alphanumeric strings (likely IDs)
+      /\/([a-zA-Z0-9]{6,})-/,        // Pattern like /abc123-something
+    ];
+
+    for (const pattern of videoIdPatterns) {
+      const match = pathname.match(pattern);
+      if (match && match[1]) {
+        const videoId = match[1];
+        console.log(`🎯 Found video ID: "${videoId}" in ${url.substring(0, 60)}...`);
+        return `${domain}-${videoId}`;
+      }
+    }
+
+    // Strategy 2: Group by base path (everything before quality/format indicators)
+    const basePath = pathname
+      .replace(/\/\d+p?\/.*$/, '')        // Remove /720p/... or /720/...
+      .replace(/\/playlist\.m3u8.*$/, '') // Remove /playlist.m3u8...
+      .replace(/\/index\.m3u8.*$/, '')    // Remove /index.m3u8...
+      .replace(/\/master\.m3u8.*$/, '')   // Remove /master.m3u8...
+      .replace(/\/\w+\.m3u8.*$/, '')      // Remove any .m3u8 file
+      .replace(/\/chunklist.*$/, '')      // Remove chunklist files
+      .replace(/\/seg-\d+.*$/, '')        // Remove segment files
+      .replace(/\/\d+-\d+.*$/, '');       // Remove timestamp patterns
+
+    if (basePath && basePath !== '/' && basePath.length > 5) {
+      console.log(`🎯 Using base path grouping: "${basePath}" for ${url.substring(0, 60)}...`);
+      return `${domain}${basePath}`;
+    }
+
+    // Strategy 3: Group by common parent directory
+    const segments = pathname.split('/').filter(s => s.length > 0);
+    if (segments.length >= 2) {
+      // Use the last non-file segment as grouping key
+      for (let i = segments.length - 1; i >= 0; i--) {
+        const segment = segments[i];
+
+        // Skip file-like segments
+        if (segment.includes('.') || segment.match(/^\d+$/) ||
+            segment.includes('playlist') || segment.includes('chunklist') ||
+            segment.includes('seg-') || segment.match(/^\d+-\d+/)) {
+          continue;
+        }
+
+        if (segment.length > 3) {
+          const groupKey = `${domain}-${segments.slice(0, i + 1).join('/')}`;
+          console.log(`🎯 Using parent directory grouping: "${groupKey}" for ${url.substring(0, 60)}...`);
+          return groupKey;
+        }
+      }
+    }
+
+    // Strategy 4: Look for timestamp-based grouping (same video, different times)
+    const timestampMatch = url.match(/(\d{10,13})/); // Unix timestamp
+    const dateMatch = url.match(/(\d{4}-\d{2}-\d{2})/); // Date pattern
+
+    if (timestampMatch || dateMatch) {
+      const timeKey = timestampMatch ? timestampMatch[1].substring(0, 8) : dateMatch[1];
+      const groupKey = `${domain}-${timeKey}`;
+      console.log(`🎯 Using timestamp grouping: "${groupKey}" for ${url.substring(0, 60)}...`);
+      return groupKey;
+    }
+
+    // Fallback: use domain + first meaningful path segment
+    const fallbackKey = segments.length > 0 ? `${domain}-${segments[0]}` : domain;
+    console.log(`🎯 Fallback grouping: "${fallbackKey}" for ${url.substring(0, 60)}...`);
+    return fallbackKey;
+
+  } catch (error) {
+    console.warn('⚠️ getVideoGroupingKey error:', error.message);
+    return `unknown-${Date.now()}`;
+  }
 }
 
-// Create a banner notification for captured streams
-function createStreamCaptureBanner(streamData) {
-  // Check if we already have a stream banner
-  let existingBanner = document.querySelector('.captured-streams-banner');
+// Helper function to extract video name from grouping key
+function extractVideoNameFromGroupingKey(groupingKey, streams) {
+  try {
+    // Remove domain prefix
+    const keyWithoutDomain = groupingKey.replace(/^[^-]+-/, '');
 
-  if (!existingBanner) {
-    // Create the main banner container
-    existingBanner = document.createElement('div');
-    existingBanner.className = 'captured-streams-banner';
-    existingBanner.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 20px;
-      background: rgba(25, 118, 210, 0.95);
-      color: white;
-      padding: 16px 20px;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      z-index: 10001;
-      max-width: 400px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.4;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    `;
-
-    existingBanner.innerHTML = `
-      <div style="display: flex; align-items: center; margin-bottom: 8px;">
-        <span style="font-size: 20px; margin-right: 8px;">🎬</span>
-        <strong>Detected Videos:</strong>
-      </div>
-      <div class="stream-list" style="margin-left: 28px;">
-        <!-- Stream items will be added here -->
-      </div>
-      <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; margin-left: 28px;">
-        Click to see download options
-      </div>
-    `;
-
-    // Add click handler to show all video overlays
-    existingBanner.addEventListener('click', () => {
-      showAllCapturedStreams();
+    // Get the most common path segments from all streams in this group
+    const pathSegments = streams.map(stream => {
+      try {
+        const url = new URL(stream.src);
+        return url.pathname.split('/').filter(s => s.length > 0);
+      } catch {
+        return [];
+      }
     });
 
-    document.body.appendChild(existingBanner);
-  }
+    // Find common meaningful segments
+    if (pathSegments.length > 0) {
+      const commonSegments = pathSegments[0];
+      for (let i = 0; i < commonSegments.length; i++) {
+        const segment = commonSegments[i];
 
-  // Add this stream to the banner
-  const streamList = existingBanner.querySelector('.stream-list');
-  const streamItem = document.createElement('div');
-  streamItem.className = 'stream-item';
-  streamItem.dataset.streamId = streamData.id;
-  streamItem.style.cssText = `
-    margin: 4px 0;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s ease;
-  `;
+        // Skip technical segments
+        if (segment.includes('.m3u8') || segment.includes('playlist') ||
+            segment.includes('chunklist') || segment.match(/^\d+p?$/) ||
+            segment.includes('master') || segment.includes('index')) {
+          continue;
+        }
 
-  streamItem.innerHTML = `
-    <div style="font-weight: 500;">${streamData.title}</div>
-    <div style="font-size: 12px; opacity: 0.8;">
-      ${streamData.format} • ${streamData.quality || 'unknown quality'}
-    </div>
-  `;
+        // If this is a meaningful name, use it
+        if (segment.length > 3 && !segment.match(/^\d+$/)) {
+          const cleanName = segment
+            .replace(/[_-]/g, ' ')
+            .replace(/\.(mp4|webm|m3u8).*$/i, '')
+            .trim();
 
-  // Add click handler for individual stream
-  streamItem.addEventListener('click', (e) => {
-    e.stopPropagation();
-    enhancedVideoManager.selectVideo(streamData.id);
-  });
-
-  // Add hover effects
-  streamItem.addEventListener('mouseenter', () => {
-    streamItem.style.background = 'rgba(255, 255, 255, 0.2)';
-  });
-
-  streamItem.addEventListener('mouseleave', () => {
-    streamItem.style.background = 'rgba(255, 255, 255, 0.1)';
-  });
-
-  streamList.appendChild(streamItem);
-
-  // Auto-hide banner after 8 seconds if not interacted with
-  setTimeout(() => {
-    if (existingBanner && existingBanner.parentNode && !existingBanner.matches(':hover')) {
-      existingBanner.style.opacity = '0.7';
-      existingBanner.style.transform = 'translateX(-10px)';
+          if (cleanName.length > 0) {
+            console.log(`🏷️ Extracted video name from group: "${cleanName}"`);
+            return cleanName;
+          }
+        }
+      }
     }
-  }, 8000);
 
-  return existingBanner;
+    // Fallback to cleaning the grouping key
+    const cleanKey = keyWithoutDomain
+      .replace(/[_-]/g, ' ')
+      .replace(/\.(mp4|webm|m3u8).*$/i, '')
+      .trim();
+
+    return cleanKey.length > 0 ? cleanKey : 'Video Stream';
+
+  } catch (error) {
+    console.warn('⚠️ extractVideoNameFromGroupingKey error:', error.message);
+    return 'Video Stream';
+  }
 }
 
-// Show options for all captured streams
-function showAllCapturedStreams() {
-  console.log('📋 Showing all captured streams');
+// Ensure the functions are globally accessible for debugging
+if (typeof window !== 'undefined') {
+  window.getVideoGroupingKey = getVideoGroupingKey;
+  window.extractVideoNameFromGroupingKey = extractVideoNameFromGroupingKey;
+}
 
+// Update the grouped stream banner with all captured streams
+function updateGroupedStreamBanner() {
+  // Get all captured streams
   const capturedStreams = Array.from(enhancedVideoManager.detectedVideos.values())
     .filter(video => video.category === 'captured');
 
   if (capturedStreams.length === 0) {
-    console.log('❌ No captured streams found');
+    return;
+  }
+
+  // Group streams by video using enhanced grouping logic
+  const videoGroups = new Map();
+
+  console.log(`🔍 Starting enhanced grouping for ${capturedStreams.length} streams...`);
+
+  capturedStreams.forEach((stream, index) => {
+    const groupingKey = getVideoGroupingKey(stream);
+    console.log(`  ${index + 1}. Stream: ${stream.src.substring(0, 80)}...`);
+    console.log(`     → Group key: ${groupingKey}`);
+
+    if (!videoGroups.has(groupingKey)) {
+      videoGroups.set(groupingKey, {
+        groupingKey: groupingKey,
+        name: null, // Will be determined after all streams are grouped
+        domain: stream.domain,
+        streams: [],
+        firstSeen: stream.timestamp || Date.now()
+      });
+    }
+
+    videoGroups.get(groupingKey).streams.push(stream);
+  });
+
+  // Now determine the best name for each group based on all its streams
+  videoGroups.forEach((group, groupingKey) => {
+    group.name = extractVideoNameFromGroupingKey(groupingKey, group.streams);
+    console.log(`📊 Group "${groupingKey}" → Display name: "${group.name}" (${group.streams.length} streams)`);
+  });
+
+  // Convert to array and sort by stream count
+  const groupedVideos = Array.from(videoGroups.values())
+    .sort((a, b) => b.streams.length - a.streams.length);
+
+  console.log(`📊 Grouped ${capturedStreams.length} streams into ${groupedVideos.length} videos:`, groupedVideos);
+
+  // Create or update the grouped banner
+  createGroupedStreamBanner(groupedVideos);
+}
+
+// Create a virtual overlay for captured streams (no DOM element)
+function createVirtualStreamOverlay(streamData) {
+  // This function is now replaced by updateGroupedStreamBanner
+  console.log(`📺 Stream will be grouped: ${streamData.title}`);
+}
+
+// Create a grouped banner for captured streams
+function createGroupedStreamBanner(groupedVideos) {
+  // Remove existing banner
+  const existingBanner = document.querySelector('.captured-streams-banner');
+  if (existingBanner) {
+    existingBanner.remove();
+  }
+
+  if (groupedVideos.length === 0) {
+    return;
+  }
+
+  // Create the main banner container
+  const banner = document.createElement('div');
+  banner.className = 'captured-streams-banner';
+  banner.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: rgba(25, 118, 210, 0.95);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 10001;
+    max-width: 450px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  `;
+
+  const totalStreams = groupedVideos.reduce((sum, group) => sum + group.streams.length, 0);
+
+  banner.innerHTML = `
+    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+      <span style="font-size: 20px; margin-right: 8px;">🎬</span>
+      <strong>Detected ${groupedVideos.length} Video${groupedVideos.length > 1 ? 's' : ''} (${totalStreams} streams)</strong>
+    </div>
+    <div style="font-size: 11px; opacity: 0.7; margin: 4px 0 12px 28px; font-style: italic;">
+      📍 From: ${window.location.hostname}
+    </div>
+    <div class="video-group-list" style="margin-left: 28px;">
+      <!-- Video groups will be added here -->
+    </div>
+    <div style="font-size: 12px; opacity: 0.8; margin-top: 8px; margin-left: 28px;">
+      Click on a video to download all its streams
+    </div>
+  `;
+
+  const videoGroupList = banner.querySelector('.video-group-list');
+
+  // Add each video group
+  groupedVideos.forEach(group => {
+    const groupItem = document.createElement('div');
+    groupItem.className = 'video-group-item';
+    groupItem.style.cssText = `
+      margin: 6px 0;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      border-left: 3px solid rgba(255, 255, 255, 0.3);
+    `;
+
+    const uniqueQualities = [...new Set(group.streams.map(s => s.quality || 'unknown'))];
+    const uniqueFormats = [...new Set(group.streams.map(s => s.format))];
+
+    groupItem.innerHTML = `
+      <div style="font-weight: 500; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+        <span style="color: white;">🎬 ${group.name}</span>
+        <span style="background: rgba(255,255,255,0.2); padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: bold;">
+          ${group.streams.length} streams
+        </span>
+      </div>
+      <div style="font-size: 11px; opacity: 0.8; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px;">
+        <span>📍 ${group.domain}</span>
+        <span>•</span>
+        <span>📊 ${uniqueFormats.join(', ')}</span>
+        ${uniqueQualities.length > 0 ? '<span>•</span>' : ''}
+        ${uniqueQualities.map(quality => `
+          <span style="background: rgba(255,255,255,0.15); padding: 1px 4px; border-radius: 2px; font-size: 9px;">
+            ${quality}
+          </span>
+        `).join('')}
+      </div>
+      <div style="font-size: 10px; opacity: 0.6;">
+        Sample URLs: ${group.streams.slice(0, 2).map(s =>
+          s.src.length > 40 ? s.src.substring(s.src.lastIndexOf('/')+1, s.src.lastIndexOf('/')+20) + '...' : s.src.substring(s.src.lastIndexOf('/')+1)
+        ).join(', ')}${group.streams.length > 2 ? ` +${group.streams.length - 2} more` : ''}
+      </div>
+    `;
+
+    // Add click handler for video group - sends all streams for this video
+    groupItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      downloadVideoGroup(group);
+    });
+
+    // Add hover effects
+    groupItem.addEventListener('mouseenter', () => {
+      groupItem.style.background = 'rgba(255, 255, 255, 0.2)';
+      groupItem.style.borderLeftColor = 'rgba(255, 255, 255, 0.6)';
+    });
+
+    groupItem.addEventListener('mouseleave', () => {
+      groupItem.style.background = 'rgba(255, 255, 255, 0.1)';
+      groupItem.style.borderLeftColor = 'rgba(255, 255, 255, 0.3)';
+    });
+
+    videoGroupList.appendChild(groupItem);
+  });
+
+  // Add click handler to show detailed view
+  banner.addEventListener('click', (e) => {
+    if (e.target === banner || e.target.closest('.video-group-list') === null) {
+      showGroupedStreamDetails(groupedVideos);
+    }
+  });
+
+  document.body.appendChild(banner);
+
+  // Auto-hide banner after 10 seconds if not interacted with
+  setTimeout(() => {
+    if (banner && banner.parentNode && !banner.matches(':hover')) {
+      banner.style.opacity = '0.7';
+      banner.style.transform = 'translateX(-10px)';
+    }
+  }, 10000);
+
+  return banner;
+}
+
+// Handle downloading all streams for a video group
+async function downloadVideoGroup(group) {
+  console.log(`🎬 Downloading video group: ${group.name} with ${group.streams.length} streams`);
+
+  // Create a representative video object for this group
+  const representativeStream = group.streams[0]; // Use first stream as representative
+  const groupVideoData = {
+    ...representativeStream,
+    title: `${group.name} (${group.streams.length} streams)`,
+    groupedStreams: group.streams, // Include all streams
+    category: 'grouped'
+  };
+
+  // Process the grouped video
+  await enhancedVideoManager.selectVideo(representativeStream.id);
+}
+
+// Show detailed view of grouped streams
+function showGroupedStreamDetails(groupedVideos) {
+  console.log('📋 Showing grouped stream details');
+
+  if (groupedVideos.length === 0) {
+    console.log('❌ No grouped videos found');
     return;
   }
 
@@ -1450,14 +1766,16 @@ function showAllCapturedStreams() {
     background: white;
     border-radius: 12px;
     padding: 24px;
-    max-width: 600px;
+    max-width: 700px;
     max-height: 80vh;
     overflow-y: auto;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   `;
 
-  const streamItems = capturedStreams.map(stream => `
-    <div class="stream-option" data-stream-id="${stream.id}" style="
+  const totalStreams = groupedVideos.reduce((sum, group) => sum + group.streams.length, 0);
+
+  const videoGroupItems = groupedVideos.map((group, index) => `
+    <div class="video-group-option" data-group-index="${index}" style="
       padding: 16px;
       border: 1px solid #e0e0e0;
       border-radius: 8px;
@@ -1465,12 +1783,25 @@ function showAllCapturedStreams() {
       cursor: pointer;
       transition: all 0.2s ease;
     ">
-      <div style="font-weight: 600; margin-bottom: 4px;">${stream.title}</div>
-      <div style="color: #666; font-size: 14px; margin-bottom: 8px;">
-        ${stream.format} • ${stream.quality || 'unknown quality'} • ${stream.domain}
+      <div style="font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 8px;">
+        <span>🎬</span>
+        <span>${group.name}</span>
+        <span style="background: #1976d2; color: white; padding: 2px 6px; border-radius: 10px; font-size: 10px;">
+          ${group.streams.length} streams
+        </span>
       </div>
-      <div style="font-size: 12px; color: #999;">
-        Captured: ${new Date(stream.timestamp).toLocaleTimeString()}
+      <div style="color: #666; font-size: 14px; margin-bottom: 8px;">
+        📍 ${group.domain}
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        ${group.streams.map(stream => `
+          <span style="background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #666;">
+            ${stream.format}${stream.quality ? ` • ${stream.quality}` : ''}
+          </span>
+        `).join('')}
+      </div>
+      <div style="font-size: 11px; color: #999; margin-top: 8px;">
+        Click to download all ${group.streams.length} stream${group.streams.length > 1 ? 's' : ''} for this video
       </div>
     </div>
   `).join('');
@@ -1481,9 +1812,10 @@ function showAllCapturedStreams() {
       <h3 style="margin: 0; color: #333;">Select Video to Download</h3>
     </div>
     <div style="color: #666; margin-bottom: 16px;">
-      Choose from ${capturedStreams.length} detected video stream${capturedStreams.length > 1 ? 's' : ''}:
+      Found <strong>${groupedVideos.length}</strong> video${groupedVideos.length > 1 ? 's' : ''}
+      with <strong>${totalStreams}</strong> total streams:
     </div>
-    ${streamItems}
+    ${videoGroupItems}
     <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
       <button id="close-dialog" style="
         padding: 10px 20px;
@@ -1504,12 +1836,13 @@ function showAllCapturedStreams() {
     document.body.removeChild(dialog);
   });
 
-  // Add stream selection handlers
-  dialogContent.querySelectorAll('.stream-option').forEach(option => {
+  // Add video group selection handlers
+  dialogContent.querySelectorAll('.video-group-option').forEach(option => {
     option.addEventListener('click', () => {
-      const streamId = option.dataset.streamId;
+      const groupIndex = parseInt(option.dataset.groupIndex);
+      const selectedGroup = groupedVideos[groupIndex];
       document.body.removeChild(dialog);
-      enhancedVideoManager.selectVideo(streamId);
+      downloadVideoGroup(selectedGroup);
     });
 
     // Add hover effect
@@ -1530,4 +1863,46 @@ function showAllCapturedStreams() {
       document.body.removeChild(dialog);
     }
   });
+}
+
+// Show options for all captured streams (legacy function, now uses grouped display)
+function showAllCapturedStreams() {
+  console.log('📋 Showing all captured streams (redirecting to grouped view)');
+
+  // Get all captured streams and group them
+  const capturedStreams = Array.from(enhancedVideoManager.detectedVideos.values())
+    .filter(video => video.category === 'captured');
+
+  if (capturedStreams.length === 0) {
+    console.log('❌ No captured streams found');
+    return;
+  }
+
+  // Group using enhanced logic
+  const videoGroups = new Map();
+
+  capturedStreams.forEach(stream => {
+    const groupingKey = getVideoGroupingKey(stream);
+
+    if (!videoGroups.has(groupingKey)) {
+      videoGroups.set(groupingKey, {
+        groupingKey: groupingKey,
+        name: null,
+        domain: stream.domain,
+        streams: []
+      });
+    }
+
+    videoGroups.get(groupingKey).streams.push(stream);
+  });
+
+  // Determine names for each group
+  videoGroups.forEach((group, groupingKey) => {
+    group.name = extractVideoNameFromGroupingKey(groupingKey, group.streams);
+  });
+
+  const groupedVideos = Array.from(videoGroups.values())
+    .sort((a, b) => b.streams.length - a.streams.length);
+
+  showGroupedStreamDetails(groupedVideos);
 }

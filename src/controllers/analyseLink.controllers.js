@@ -1,4 +1,6 @@
 const logger = require('../configs/logger.config');
+const processLink = require('../services/process.service');
+const { extractVideoNameFromGroupingKey } = require('../utils/process.utils');
 
 const analyseLink = async (req, res, next) => {
   try {
@@ -44,14 +46,59 @@ const analyseLink = async (req, res, next) => {
       console.log('🍪 Cookies received for video download authentication');
     }
 
-    // Log M3U8 URLs for downloading
+    // Group M3U8 URLs by video name/domain for better organization
+    let groupedVideos = [];
     if (m3u8Urls && m3u8Urls.length > 0) {
       console.log('🎯 M3U8 URLs detected for downloading:');
+
+      // Group M3U8 URLs by video name or domain
+      const videoGroups = new Map();
+
+      console.log(
+        `🔍 Starting enhanced M3U8 grouping for ${m3u8Urls.length} streams...`
+      );
+
       m3u8Urls.forEach((stream, index) => {
         console.log(`  ${index + 1}. Quality: ${stream.quality || 'unknown'}`);
         console.log(`     URL: ${stream.url}`);
         console.log(`     Domain: ${stream.domain}`);
+
+        // Use enhanced grouping logic
+        const groupingKey = getVideoGroupingKey(stream.url);
+        console.log(`     → Group key: ${groupingKey}`);
         console.log('');
+
+        if (!videoGroups.has(groupingKey)) {
+          videoGroups.set(groupingKey, {
+            groupingKey: groupingKey,
+            name: null, // Will be determined after all streams are grouped
+            domain: stream.domain,
+            streams: [],
+          });
+        }
+
+        videoGroups.get(groupingKey).streams.push(stream);
+      });
+
+      // Determine the best display name for each group
+      videoGroups.forEach((group, groupingKey) => {
+        group.name = extractVideoNameFromGroupingKey(
+          groupingKey,
+          group.streams
+        );
+        console.log(
+          `📊 Group "${groupingKey}" → Display name: "${group.name}" (${group.streams.length} streams)`
+        );
+      });
+
+      // Convert grouped data to array for easier processing
+      groupedVideos = Array.from(videoGroups.values());
+
+      console.log(`📊 Grouped into ${groupedVideos.length} videos:`);
+      groupedVideos.forEach((video, index) => {
+        console.log(
+          `  ${index + 1}. "${video.name}" - ${video.streams.length} stream(s)`
+        );
       });
     }
 
@@ -70,6 +117,9 @@ const analyseLink = async (req, res, next) => {
     const processId =
       'demo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 11);
 
+    //process them with ffmpeg
+    processLink(processId, sessionId);
+
     // Simulate processing delay and return demo download link
     setTimeout(() => {
       logger.info(
@@ -77,7 +127,7 @@ const analyseLink = async (req, res, next) => {
       );
     }, 2000);
 
-    // Return demo response with download link
+    // Return demo response with download link and grouped videos
     res.status(200).json({
       success: true,
       processId: processId,
@@ -85,6 +135,9 @@ const analyseLink = async (req, res, next) => {
       downloadUrl: `${req.protocol}://${req.get('host')}/api/video/download/${processId}`,
       estimatedTime: '30 seconds',
       title: title,
+      groupedVideos: groupedVideos,
+      originalM3U8Count: m3u8Urls?.length || 0,
+      groupedVideoCount: groupedVideos.length,
     });
   } catch (error) {
     logger.error('Error processing video', error);

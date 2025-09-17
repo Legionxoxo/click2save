@@ -862,13 +862,28 @@ async function handleVideoDownload(request) {
     const result = await response.json();
     console.log('✅ Video processing response:', result);
 
+    // Log grouped videos information
+    if (result.groupedVideos && result.groupedVideos.length > 0) {
+      console.log('📊 Server grouped videos:', {
+        originalM3U8Count: result.originalM3U8Count,
+        groupedVideoCount: result.groupedVideoCount,
+        groups: result.groupedVideos.map(group => ({
+          name: group.name,
+          streamCount: group.streams.length
+        }))
+      });
+    }
+
     return {
       success: true,
       message: result.message || 'Video processing started',
       processId: result.processId,
       downloadUrl: result.downloadUrl,
       estimatedTime: result.estimatedTime,
-      videoId: request.videoId
+      videoId: request.videoId,
+      groupedVideos: result.groupedVideos || [],
+      originalM3U8Count: result.originalM3U8Count || 0,
+      groupedVideoCount: result.groupedVideoCount || 0
     };
 
   } catch (error) {

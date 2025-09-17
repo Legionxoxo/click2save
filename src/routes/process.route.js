@@ -4,10 +4,12 @@ const {
   analyseLink,
   downloadLink,
 } = require('../controllers/analyseLink.controllers');
+const validateLinks = require('../validation/process.validation');
+const checkSessionId = require('../middlewares/process.middleware');
 const router = express.Router();
 
 //process videos
-router.post('/process', analyseLink);
+router.post('/process', validateLinks, checkSessionId, analyseLink);
 
 router.get('/status/:processId', processStatus);
 
