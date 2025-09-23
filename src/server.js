@@ -17,20 +17,27 @@ const shutdown = signal => {
     process.exit(1);
   }, 10000);
 
-  server.close(err => {
-    if (err) {
-      console.error('❌ Error during server shutdown:', err);
-      clearTimeout(forceShutdown);
-      process.exit(1);
-    }
+  // Check if server is actually running before trying to close
+  if (server && server.listening) {
+    server.close(err => {
+      if (err) {
+        console.error('❌ Error during server shutdown:', err);
+        clearTimeout(forceShutdown);
+        process.exit(1);
+      }
 
-    // Close logger transports to ensure all file handles are released
-    logger.close(() => {
-      console.log('✅ Server closed successfully.');
-      clearTimeout(forceShutdown);
-      process.exit(0);
+      // Close logger transports to ensure all file handles are released
+      logger.close(() => {
+        console.log('✅ Server closed successfully.');
+        clearTimeout(forceShutdown);
+        process.exit(0);
+      });
     });
-  });
+  } else {
+    console.log('📭 Server was not running.');
+    clearTimeout(forceShutdown);
+    process.exit(0);
+  }
 };
 
 // Listen for termination signals

@@ -5,7 +5,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const processRoute = require('./routes/process.route');
+const eventsRoute = require('./routes/events.route');
 const errorMiddleware = require('./middlewares/error.middleware');
+const eventService = require('./services/event.service');
 
 const app = express();
 
@@ -45,8 +47,31 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint for event service
+app.get('/api/test-events', async (req, res) => {
+  try {
+    const result = await eventService.testConnection();
+
+    res.status(200).json({
+      message: 'Event service test completed',
+      eventSent: result.success,
+      eventApiConfigured: eventService.enabled,
+      result: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Event service test failed',
+      error: error.message,
+      eventApiConfigured: eventService.enabled
+    });
+  }
+});
+
 // Video processing endpoints
 app.use('/api/video', processRoute);
+
+// Event tracking endpoints
+app.use('/api/events', eventsRoute);
 
 //catch all
 app.use((req, res) => {
